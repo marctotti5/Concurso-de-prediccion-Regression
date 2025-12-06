@@ -300,7 +300,7 @@ data_pisos_train <- data_pisos_final %>%
   select(-conjunto)
 
 data_pisos_test <- data_pisos_final %>%
-  filter(conjunto == "train") %>%
+  filter(conjunto == "test") %>%
   select(-conjunto, -SalePrice)
 
 ## ----------------------------------------------------------------------------------------------------------
@@ -428,10 +428,14 @@ y_train <- data_pisos_train$SalePrice
 X_test <- data_pisos_test
 
 cat("Missing values in train:\n")
-colSums(is.na(X_train)) |> (\(x) x[x > 0])() |> print()
+colSums(is.na(X_train)) |>
+  (\(x) x[x > 0])() |>
+  print()
 
 cat("\nMissing values in test:\n")
-colSums(is.na(X_test)) |> (\(x) x[x > 0])() |> print()
+colSums(is.na(X_test)) |>
+  (\(x) x[x > 0])() |>
+  print()
 
 # Step 2: Entrenar modelo de imputación SOLO en train
 set.seed(123)
