@@ -26,6 +26,7 @@ library(mice)
 ## ----------------------------------------------------------------------------------------------------------
 rm(list = ls())
 
+
 ## Leemos el id como character, que por defecto lo leía como numeric, el resto por defecto
 data_pisos_train <- read.csv(
   "./data/train.csv",
@@ -189,10 +190,10 @@ data_pisos <- data_pisos %>%
       ScreenPorch,
 
     # Indicador de si tiene segundo piso
-    Has2ndFloor = ifelse(X2ndFlrSF > 0, 1, 0),
+    Has2ndFloor = ifelse(X2ndFlrSF > 0, "Yes", "No"),
 
     # Indicador de si fue remodelado
-    IsRemodeled = ifelse(YearRemodAdd > YearBuilt, 1, 0)
+    IsRemodeled = ifelse(YearRemodAdd > YearBuilt, "Yes", "No")
   )
 
 # Analizar correlación de las nuevas variables con SalePrice
@@ -419,106 +420,200 @@ data_pisos_train |>
   theme(legend.position = "none")
 
 
+
 ## ----------------------------------------------------------------------------------------------------------
 ## ----------------------------------------- MISSING IMPUTATION----------------------------------------------
 ## ----------------------------------------------------------------------------------------------------------
-# Step 1: Preparar datos (sin target)
-X_train <- data_pisos_train |> select(-SalePrice)
-y_train <- data_pisos_train$SalePrice
-X_test <- data_pisos_test
+# Step 1: Preparar datos combinados
+# Mantener SalePrice en train para que ayude a imputar, pero asegurar que en test sea NA
+data_full_imputation <- bind_rows(
+  data_pisos_train %>% mutate(is_test = FALSE),
+  data_pisos_test %>% mutate(SalePrice = NA, is_test = TRUE)
+)
 
-cat("Missing values in train:\n")
-colSums(is.na(X_train)) |>
-  (\(x) x[x > 0])() |>
-  print()
+# Step 2: Configurar vector 'ignore'
+# TRUE = La fila NO se usa para entrenar el modelo (pero SÍ se imputa)
+# Usaremos solo las filas de train (is_test == FALSE) para aprender los patrones
+ignore_vec <- data_full_imputation$is_test
 
-cat("\nMissing values in test:\n")
-colSums(is.na(X_test)) |>
-  (\(x) x[x > 0])() |>
-  print()
-
-# Step 2: Entrenar modelo de imputación SOLO en train
-set.seed(123)
-cat("\n=== Training imputation model on TRAIN data only ===\n")
+cat("\n=== Running unified imputation (Training on TRAIN rows only) ===\n")
 start_time <- Sys.time()
 
-# Configurar métodos de imputación
-# pmm = predictive mean matching (robusto para numéricos)
-# logreg/polyreg = para categóricos
-impute_model <- mice(
-  X_train,
-  m = 1, # Una sola imputación (puedes usar m=5 para múltiple)
-  method = "rf", # Random forest para todas las variables
-  ntree = 100,
-  maxit = 5, # Iteraciones
+# Step 3: Imputar usando 'ignore'
+# Excluimos variables auxiliares como 'is_test' o IDs si los hubiera en la fórmula del mice,
+# pero mice por defecto usa todo. Aseguramos method='rf'.
+impute_unified <- mice(
+  data_full_imputation %>% select(-is_test),
+  m = 1,
+  method = "rf",
+  ignore = ignore_vec,
+  maxit = 5,
   seed = 123,
   printFlag = TRUE
 )
 
 end_time <- Sys.time()
 cat(
-  "\nTrain imputation time:",
+  "\nImputation time:",
   round(difftime(end_time, start_time, units = "secs"), 1),
   "secs\n"
 )
 
-# Step 3: Extraer datos imputados de train
-X_train_imputed <- complete(impute_model, 1)
+# Step 4: Extraer datos completos y separar
+data_full_completed <- complete(impute_unified, 1)
 
-cat(
-  "\nMissing values in train after imputation:",
-  sum(is.na(X_train_imputed)),
-  "\n"
-)
-
-# Step 4: Aplicar el MISMO modelo a test
-cat("\n=== Applying trained model to TEST data ===\n")
-start_time <- Sys.time()
-
-# Crear objeto mice vacío para test con la misma estructura
-impute_test <- mice(
-  X_test,
-  m = 1,
-  maxit = 0, # No entrenar, solo preparar estructura
-  seed = 123,
-  printFlag = FALSE
-)
-
-# Usar los parámetros aprendidos de train para imputar test
-# Esto usa los modelos entrenados en train
-X_test_imputed <- complete(
-  mice.mids(impute_test, newdata = X_test, printFlag = TRUE),
-  1
-)
-
-end_time <- Sys.time()
-cat(
-  "\nTest imputation time:",
-  round(difftime(end_time, start_time, units = "secs"), 1),
-  "secs\n"
-)
-
-cat(
-  "\nMissing values in test after imputation:",
-  sum(is.na(X_test_imputed)),
-  "\n"
-)
-
-# Step 5: Reconstruir datasets finales
-data_pisos_train_imputed <- X_train_imputed %>%
-  mutate(SalePrice = y_train) %>%
+# Recuperar Train
+data_pisos_train_imputed <- data_full_completed %>%
+  slice(which(!ignore_vec)) %>%
   as_tibble()
 
-data_pisos_test_imputed <- X_test_imputed %>%
+# Recuperar Test (y quitar SalePrice que era NA/falso)
+data_pisos_test_imputed <- data_full_completed %>%
+  slice(which(ignore_vec)) %>%
+  select(-SalePrice) %>%
   as_tibble()
+
+sum(is.na(data_pisos_train_imputed))
+sum(is.na(data_pisos_test_imputed))
 
 ## ----------------------------------------------------------------------------------------------------------
 ## --------------------------------- ANÁLISIS DE CORRELACIONES Y MULTICOLINEALIDAD --------------------------
 ## ----------------------------------------------------------------------------------------------------------
 
+library(ggcorrplot)
+
+
+# Correlation plot
+
+numeric_vars <- data_pisos_train_imputed %>%
+  select(where(is.numeric), -SalePrice)
+
+cor_matrix <- cor(numeric_vars, use = "pairwise.complete.obs")
+
+correlation_plot <- ggcorrplot(
+  cor_matrix,
+  method = "square",
+  type = "lower",
+  lab = TRUE,
+  lab_size = 2,
+  tl.cex = 6,
+  title = "Correlation Matrix"
+)
+correlation_plot
+
+# Condition Number (Kappa)
+# Medida global de multicolinealidad.
+# Regla general: < 10 (Bien), 10-30 (Moderada), > 30 (Severa/Grave)
+
+# Seleccionar solo numéricas y ESCALAR (fundamental para kappa)
+X_matrix <- data_pisos_train_imputed %>%
+  select(where(is.numeric), -SalePrice) %>%
+  scale()
+
+# Calcular numero de condicion
+cond_val <- kappa(X_matrix)
+
+cond_val
+
+# VIF (Variance Inflation Factor)
+# Identifica que variable especifica causa la inflacion de varianza.
+# VIF = 1 (Sin correlacion) | VIF > 5 (Alta) | VIF > 10 (Muy grave)
+
+library(car) # Necesario para la funcion vif()
+
+# 1. Ajustamos un modelo auxiliar con todas las numericas
+model_vif <- lm(SalePrice ~ ., data = data_pisos_train_imputed %>% select(where(is.numeric)))
+
+# 2. Calculamos los valores VIF
+vif_values <- vif(model_vif)
+
+# 3. Tabla ordenada para ver los culpables
+vif_df <- data.frame(Variable = names(vif_values), VIF = vif_values) %>%
+  arrange(desc(VIF))
+
+# 4. Visualizacion rapida de las variables peligrosas (VIF > 5)
+vif_graph <- vif_df %>%
+  ggplot(aes(x = reorder(Variable, VIF), y = VIF)) +
+  geom_bar(stat = "identity", fill = "firebrick") +
+  geom_hline(yintercept = 10, linetype = "dashed", color = "black") +
+  coord_flip() +
+  labs(
+    title = "Variables con Multicolinealidad Alta (VIF > 10)",
+    subtitle = "Estas variables estan 'inflando' la varianza del modelo",
+    x = "Variable",
+    y = "VIF"
+  ) +
+  theme_minimal()
+
+ggplotly(vif_graph)
+
+# Diagnostico Matematico (Determinante y Autovalores)
+# Confirma matematicamente la severidad detectada por el VIF.
+
+# A) Determinante de la matriz de correlacion
+# 1 = Independencia total | 0 = Multicolinealidad perfecta
+det_val <- det(cor(numeric_vars))
+cat("\n------------------------------------------------\n")
+cat("DETERMINANTE DE LA MATRIZ:", format(det_val, scientific = FALSE), "\n")
+if (det_val < 0.001) cat(" ALERTA: Determinante cercano a 0. Redundancia muy alta.\n")
+cat("------------------------------------------------\n")
+
+# B) Autovalores (Eigenvalues)
+# Valores cercanos a 0 indican dimensiones redundantes
+eigen_val <- eigen(cor(numeric_vars))$values
+cat("Autovalores mas pequeños (cercanos a 0 son el problema):\n")
+print(tail(round(eigen_val, 5), 5))
+
+
 ## ----------------------------------------------------------------------------------------------------------
 ## ------------------------------------------- PCA EXPLORATORIO ---------------------------------------------
 ## ----------------------------------------------------------------------------------------------------------
+
+
+# 1. Preparación correcta de los datos
+# Seleccionamos solo las predictoras numéricas (excluimos el target SalePrice)
+# El PCA es muy sensible a escalas, por lo que el escalado es OBLIGATORIO (scale.unit = TRUE)
+X_pca <- data_pisos_train_imputed %>%
+  select(where(is.numeric), -SalePrice)
+
+# 2. Ejecución del PCA con FactoMineR
+# ncp = 10: Guardamos las primeras 10 dimensiones para analizar
+res_pca <- PCA(X_pca, scale.unit = TRUE, ncp = 10, graph = FALSE)
+
+# 3. Scree Plot (Gráfico de sedimentación)
+# FUNDAMENTAL: ¿Cuánta información retenemos?
+# Buscamos el "codo" o componentes con eigenvalue > 1 (Criterio de Kaiser)
+scree_plot <- fviz_eig(res_pca, addlabels = TRUE, ylim = c(0, 50)) +
+  labs(
+    title = "Scree Plot: % de Varianza Explicada",
+    subtitle = "Busca el 'codo' donde la ganancia de información se aplana"
+  )
+ggplotly(scree_plot)
+
+# 4. Círculo de Correlaciones (Variables)
+# Nos dice CÓMO se relacionan las variables originales con las nuevas dimensiones.
+# Coloreamos por 'contrib': Las que más pesan en la definición de los ejes.
+var_plot <- fviz_pca_var(res_pca,
+  col.var = "contrib", # Variables importantes en rojo
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+  repel = TRUE, # Evita solapamiento de texto
+  select.var = list(contrib = 20), # Mostrar solo las 20 Top para no saturar
+  alpha.var = 0.8
+) +
+  labs(
+    title = "Mapa de Variables (Top 20 Contribuciones)",
+    subtitle = "Vectores cercanos = Alta correlación positiva | Opuestos = Negativa | 90º = No relacionadas"
+  )
+print(var_plot)
+
+# 5. Tabla de Contribuciones (Interpretación analítica)
+# ¿Qué define a la Dimensión 1 y 2? (Esencial para dar sentido de negocio)
+cat("\n--- Top 10 variables que definen la Dimensión 1 (Eje X) ---\n")
+print(head(sort(res_pca$var$contrib[, 1], decreasing = TRUE), 10))
+
+cat("\n--- Top 10 variables que definen la Dimensión 2 (Eje Y) ---\n")
+print(head(sort(res_pca$var$contrib[, 2], decreasing = TRUE), 10))
+
 
 ## ----------------------------------------------------------------------------------------------------------
 ## -------------------------------------------------- MODELADO ----------------------------------------------
