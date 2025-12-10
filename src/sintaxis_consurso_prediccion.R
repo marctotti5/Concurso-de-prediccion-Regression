@@ -1,32 +1,43 @@
 ## ----------------------------------------------------------------------------------------------------------
 ## ----------------------------------------------- LIBRERÍAS ------------------------------------------------
 ## ----------------------------------------------------------------------------------------------------------
-library(tidyverse)
-library(gridExtra)
-library(DataExplorer)
+
+# Pacman is a package to better handle the missing packages, when trying to load a package that is not present, it automatically installs it.
+if (!require("pacman")) {
+  install.packages("pacman")
+}
+
+pacman::p_load(
+  tidyverse,
+  gridExtra,
+  DataExplorer,
+  labelled,
+  janitor,
+  gtsummary,
+  gt,
+  corrplot,
+  ggcorrplot,
+  GGally,
+  FactoMineR,
+  factoextra,
+  leaflet,
+  pheatmap,
+  sf,
+  ggpubr,
+  naniar,
+  mice,
+  car
+)
+
 `%notin%` <- Negate("%in%")
-library(labelled)
-library(janitor)
-library(gtsummary)
-library(gt)
-library(corrplot)
-library(ggcorrplot)
-library(GGally)
-library(FactoMineR)
-library(factoextra)
-library(leaflet)
-library(pheatmap)
-library(sf)
-library(ggpubr)
-library(naniar)
-library(mice)
-library(plotly)
-library(caret)
 
 ## ----------------------------------------------------------------------------------------------------------
 ## -------------------------------------------------- BBDD --------------------------------------------------
 ## ----------------------------------------------------------------------------------------------------------
+
+# Ensuring reproducibility
 rm(list = ls())
+set.seed(12345)
 
 
 ## Leemos el id como character, que por defecto lo leía como numeric, el resto por defecto
@@ -903,9 +914,6 @@ sum(is.na(data_pisos_test_imputed))
 ## --------------------------------- ANÁLISIS DE CORRELACIONES Y MULTICOLINEALIDAD --------------------------
 ## ----------------------------------------------------------------------------------------------------------
 
-library(ggcorrplot)
-
-
 # Correlation plot
 
 numeric_vars <- data_pisos_train_imputed %>%
@@ -941,8 +949,6 @@ cond_val
 # VIF (Variance Inflation Factor)
 # Identifica que variable especifica causa la inflacion de varianza.
 # VIF = 1 (Sin correlacion) | VIF > 5 (Alta) | VIF > 10 (Muy grave)
-
-library(car) # Necesario para la funcion vif()
 
 # 1. Ajustamos un modelo auxiliar con todas las numericas
 model_vif <- lm(
