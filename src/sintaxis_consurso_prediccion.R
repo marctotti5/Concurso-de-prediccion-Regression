@@ -20,6 +20,8 @@ library(sf)
 library(ggpubr)
 library(naniar)
 library(mice)
+library(plotly)
+library(caret)
 
 ## ----------------------------------------------------------------------------------------------------------
 ## -------------------------------------------------- BBDD --------------------------------------------------
@@ -209,6 +211,7 @@ new_vars <- c(
 
 cor_new_vars <- data_pisos |>
   select(all_of(new_vars), SalePrice) |>
+  select_if(is.numeric) %>%
   cor(use = "pairwise.complete.obs") |>
   as.data.frame() |>
   select(SalePrice) |>
@@ -252,8 +255,110 @@ p4 <- data_pisos |>
 
 grid.arrange(p1, p4, p2, p3, ncol = 2)
 
+
+## Variables sin variabilidad -> no aportan nada al modelo -> eliminar
+data_for_nzv <- data_pisos |>
+  select(-Id, -SalePrice) |>
+  mutate(across(where(is.character), as.factor))
+
+# Detectar variables con near-zero variance
+nzv_info <- nearZeroVar(data_for_nzv, saveMetrics = TRUE)
+
+nzv_vars <- nzv_info |>
+  rownames_to_column("variable") |>
+  filter(nzv == TRUE | zeroVar == TRUE)
+
+# Visualización de las variables más problemáticas
+p1 <- data_pisos |>
+  count(KitchenAbvGr) |>
+  mutate(prop = n / sum(n)) |>
+  ggplot(aes(x = factor(KitchenAbvGr), y = n)) +
+  geom_col(fill = "steelblue", alpha = 0.7) +
+  geom_text(
+    aes(label = scales::percent(prop, accuracy = 0.1)),
+    vjust = -0.5,
+    size = 3
+  ) +
+  labs(
+    title = "KitchenAbvGr Distribution",
+    subtitle = paste("95.6% have value 1 → Low variability"),
+    x = "KitchenAbvGr",
+    y = "Count"
+  ) +
+  theme_minimal()
+
+p2 <- data_pisos |>
+  count(Utilities) |>
+  mutate(prop = n / sum(n)) |>
+  ggplot(aes(x = Utilities, y = n)) +
+  geom_col(fill = "coral", alpha = 0.7) +
+  geom_text(
+    aes(label = scales::percent(prop, accuracy = 0.1)),
+    vjust = -0.5,
+    size = 3
+  ) +
+  labs(
+    title = "Utilities Distribution",
+    subtitle = "99.9% have 'AllPub' → Near-zero variance",
+    x = "Utilities",
+    y = "Count"
+  ) +
+  theme_minimal()
+
+p3 <- data_pisos |>
+  count(Street) |>
+  mutate(prop = n / sum(n)) |>
+  ggplot(aes(x = Street, y = n)) +
+  geom_col(fill = "darkgreen", alpha = 0.7) +
+  geom_text(
+    aes(label = scales::percent(prop, accuracy = 0.1)),
+    vjust = -0.5,
+    size = 3
+  ) +
+  labs(
+    title = "Street Distribution",
+    subtitle = "99.6% have 'Pave' → Near-zero variance",
+    x = "Street",
+    y = "Count"
+  ) +
+  theme_minimal()
+
+p4 <- data_pisos |>
+  count(PoolArea > 0) |>
+  mutate(
+    prop = n / sum(n),
+    has_pool = ifelse(`PoolArea > 0`, "Has Pool", "No Pool")
+  ) |>
+  ggplot(aes(x = has_pool, y = n)) +
+  geom_col(fill = "purple", alpha = 0.7) +
+  geom_text(
+    aes(label = scales::percent(prop, accuracy = 0.1)),
+    vjust = -0.5,
+    size = 3
+  ) +
+  labs(
+    title = "PoolArea Distribution",
+    subtitle = "99.9% have no pool → Near-zero variance",
+    x = "Pool Status",
+    y = "Count"
+  ) +
+  theme_minimal()
+
+graficos_variables_eliminar_sinvariabilidad <- grid.arrange(
+  p1,
+  p2,
+  p3,
+  p4,
+  ncol = 2
+)
+variables_eliminar_sinvariabilidad <- nzv_vars$variable
+
+
+## Variables categóricas redundantes
+
 # Crear dataset final eliminando variables redundantes
 data_pisos_final <- data_pisos |>
+  select(-all_of(variables_eliminar_sinvariabilidad)) %>%
   # Eliminar variables redundantes
   select(
     -c(
@@ -279,10 +384,10 @@ data_pisos_final <- data_pisos |>
 
       # Variables de porches individuales (reemplazadas por TotalPorchSF)
       WoodDeckSF,
-      OpenPorchSF,
-      EnclosedPorch,
-      X3SsnPorch,
-      ScreenPorch,
+      #OpenPorchSF,
+      #EnclosedPorch,
+      #X3SsnPorch,
+      #ScreenPorch,
 
       # Componentes de área de piso (ya están en TotalSF)
       X1stFlrSF,
@@ -290,10 +395,11 @@ data_pisos_final <- data_pisos |>
 
       # Variables de sótano muy específicas (mantener las más importantes)
       BsmtFinSF1,
-      BsmtFinSF2,
+      #BsmtFinSF2,
       BsmtUnfSF,
     )
   )
+
 
 ## Volvemos a separar en train y test, y eliminamos la variable respuesta de test
 data_pisos_train <- data_pisos_final %>%
@@ -309,8 +415,325 @@ data_pisos_test <- data_pisos_final %>%
 ## ----------------------------------------------------------------------------------------------------------
 
 ## TODO: HACER ANALISIS EXPLORATORIO GENERAL DE TRAIN, AHORA SOLO HE MIRADO MISSINGS
+## --------------------------------------- Variable respuesta ----------------------------------------------
+# Análisis normalidad respuesta
+p1 <- data_pisos_train |>
+  ggplot(aes(x = SalePrice)) +
+  geom_histogram(bins = 50, fill = "steelblue", alpha = 0.7, color = "white") +
+  scale_x_continuous(labels = scales::dollar) +
+  labs(
+    title = "SalePrice Distribution",
+    subtitle = "Right-skewed distribution",
+    x = "Sale Price",
+    y = "Count"
+  ) +
+  theme_minimal()
 
-## Análisis de missings
+p2 <- data_pisos_train |>
+  ggplot(aes(x = SalePrice)) +
+  geom_histogram(bins = 50, fill = "coral", alpha = 0.7, color = "white") +
+  scale_x_log10(labels = scales::dollar) +
+  labs(
+    title = "SalePrice Distribution (log scale)",
+    subtitle = "More normal after log transformation",
+    x = "Sale Price (log)",
+    y = "Count"
+  ) +
+  theme_minimal()
+
+p3 <- data_pisos_train |>
+  ggplot(aes(sample = SalePrice)) +
+  stat_qq(color = "steelblue", alpha = 0.7) +
+  stat_qq_line(color = "red", linewidth = 1) +
+  labs(title = "Q-Q Plot: SalePrice", subtitle = "Heavy right tail visible") +
+  theme_minimal()
+
+p4 <- data_pisos_train |>
+  ggplot(aes(sample = log(SalePrice))) +
+  stat_qq(color = "coral", alpha = 0.7) +
+  stat_qq_line(color = "red", linewidth = 1) +
+  labs(
+    title = "Q-Q Plot: log(SalePrice)",
+    subtitle = "Closer to normal distribution"
+  ) +
+  theme_minimal()
+
+grafico_exploratorio_respuesta <- grid.arrange(p1, p2, p3, p4, ncol = 2)
+
+## Correlaciones de la respuesta con variables numéricas
+correlations <- data_pisos_train |>
+  select(where(is.numeric), -Id) |>
+  cor(use = "complete.obs") |>
+  as.data.frame() |>
+  rownames_to_column("variable") |>
+  select(variable, SalePrice) |>
+  filter(variable != "SalePrice") |>
+  arrange(desc(abs(SalePrice))) |>
+  mutate(abs_cor = abs(SalePrice))
+
+top10 <- correlations |> head(10)
+
+
+grafico_correlaciones_precio_predictores <- ggplot(
+  top10,
+  aes(x = reorder(variable, abs_cor), y = SalePrice)
+) +
+  geom_col(aes(fill = SalePrice > 0), alpha = 0.7) +
+  geom_text(
+    aes(label = round(SalePrice, 3)),
+    hjust = ifelse(top10$SalePrice > 0, -0.1, 1.1),
+    size = 3.5
+  ) +
+  scale_fill_manual(values = c("coral", "steelblue"), guide = "none") +
+  coord_flip() +
+  labs(
+    title = "Top 10 Numeric Variables Correlated with SalePrice",
+    subtitle = "Strong positive correlations with quality and size metrics",
+    x = NULL,
+    y = "Correlation with SalePrice"
+  ) +
+  theme_minimal() +
+  theme(panel.grid.major.y = element_blank())
+
+## Análisis de variables categóricas
+p1 <- data_pisos_train |>
+  ggplot(aes(x = factor(OverallQual), y = SalePrice)) +
+  geom_boxplot(
+    aes(fill = factor(OverallQual)),
+    alpha = 0.7,
+    show.legend = FALSE
+  ) +
+  scale_y_continuous(labels = scales::dollar) +
+  scale_fill_viridis_d() +
+  labs(
+    title = "SalePrice by Overall Quality",
+    subtitle = "Clear positive relationship",
+    x = "Overall Quality (1-10)",
+    y = "Sale Price"
+  ) +
+  theme_minimal()
+
+median_by_neighborhood <- data_pisos_train |>
+  group_by(Neighborhood) |>
+  summarise(median_price = median(SalePrice, na.rm = TRUE), n = n()) |>
+  arrange(desc(median_price))
+
+p2 <- data_pisos_train |>
+  mutate(Neighborhood = fct_reorder(Neighborhood, SalePrice, .fun = median)) |>
+  ggplot(aes(x = Neighborhood, y = SalePrice)) +
+  geom_boxplot(fill = "steelblue", alpha = 0.7) +
+  scale_y_continuous(labels = scales::dollar) +
+  coord_flip() +
+  labs(
+    title = "SalePrice by Neighborhood",
+    subtitle = "High variability across locations",
+    x = NULL,
+    y = "Sale Price"
+  ) +
+  theme_minimal()
+
+p3 <- data_pisos_train |>
+  mutate(ExterQual = fct_reorder(ExterQual, SalePrice, .fun = median)) |>
+  ggplot(aes(x = ExterQual, y = SalePrice)) +
+  geom_boxplot(fill = "coral", alpha = 0.7) +
+  scale_y_continuous(labels = scales::dollar) +
+  labs(
+    title = "SalePrice by Exterior Quality",
+    x = "Exterior Quality",
+    y = "Sale Price"
+  ) +
+  theme_minimal()
+
+p4 <- data_pisos_train |>
+  mutate(KitchenQual = fct_reorder(KitchenQual, SalePrice, .fun = median)) |>
+  ggplot(aes(x = KitchenQual, y = SalePrice)) +
+  geom_boxplot(fill = "darkgreen", alpha = 0.7) +
+  scale_y_continuous(labels = scales::dollar) +
+  labs(
+    title = "SalePrice by Kitchen Quality",
+    x = "Kitchen Quality",
+    y = "Sale Price"
+  ) +
+  theme_minimal()
+
+grid.arrange(p1, p2, p3, p4, ncol = 2)
+
+## --------------------------------------- Predictores: variables categóricas -------------------------------
+# Identificar pares de categóricas altamente correlacionados
+# Variables de calidad
+quality_vars <- c(
+  "ExterQual",
+  "ExterCond",
+  "BsmtQual",
+  "BsmtExposure",
+  "HeatingQC",
+  "KitchenQual",
+  "FireplaceQu",
+  "GarageQual",
+  "GarageCond"
+)
+
+quality_numeric <- data_pisos_train |>
+  select(all_of(quality_vars), SalePrice) |>
+  mutate(across(
+    all_of(quality_vars),
+    ~ case_when(
+      . %in% c("No Basement", "No Fireplace", "No Garage") ~ 0,
+      . == "Po" ~ 1,
+      . == "Fa" ~ 2,
+      . == "TA" ~ 3,
+      . == "Gd" ~ 4,
+      . == "Ex" ~ 5,
+      . == "No" ~ 1,
+      . == "Mn" ~ 2,
+      . == "Av" ~ 3,
+      . == "GLQ" ~ 4,
+      TRUE ~ 3
+    )
+  ))
+
+# Correlaciones entre variables de calidad
+cor_quality <- cor(quality_numeric, use = "complete.obs")
+
+pheatmap(
+  cor_quality,
+  cluster_rows = FALSE,
+  cluster_cols = FALSE,
+  display_numbers = TRUE,
+  number_format = "%.2f",
+  fontsize_number = 10,
+  color = colorRampPalette(c("blue", "white", "red"))(100),
+  main = "Correlations: Categorical variables related to quality",
+  fontsize_row = 8,
+  breaks = seq(-1, 1, length.out = 101),
+  legend_breaks = c(-1, -0.5, 0, 0.5, 1)
+)
+
+
+p1 <- data_pisos_train |>
+  count(ExterQual, KitchenQual) |>
+  ggplot(aes(x = ExterQual, y = KitchenQual, fill = n)) +
+  geom_tile() +
+  geom_text(aes(label = n), color = "white", fontface = "bold") +
+  scale_fill_gradient(low = "steelblue", high = "darkred") +
+  labs(
+    title = "ExterQual vs KitchenQual",
+    subtitle = "r = 0.72 → High correlation",
+    x = "Exterior Quality",
+    y = "Kitchen Quality"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+p2 <- data_pisos_train |>
+  count(GarageQual, GarageCond) |>
+  ggplot(aes(x = GarageQual, y = GarageCond, fill = n)) +
+  geom_tile() +
+  geom_text(aes(label = n), color = "white", fontface = "bold", size = 3) +
+  scale_fill_gradient(low = "steelblue", high = "darkred") +
+  labs(
+    title = "GarageQual vs GarageCond",
+    subtitle = "r = 0.96 → Highly redundant!",
+    x = "Garage Quality",
+    y = "Garage Condition"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+p3 <- data_pisos_train |>
+  ggplot(aes(x = ExterQual, y = SalePrice, fill = ExterQual)) +
+  geom_violin(alpha = 0.7, show.legend = FALSE) +
+  geom_boxplot(width = 0.2, alpha = 0.5, show.legend = FALSE) +
+  scale_y_continuous(labels = scales::dollar) +
+  scale_fill_viridis_d() +
+  labs(
+    title = "ExterQual → SalePrice",
+    subtitle = "r = 0.68 (strong predictor)",
+    x = "Exterior Quality",
+    y = "Sale Price"
+  ) +
+  theme_minimal()
+
+p4 <- data_pisos_train |>
+  ggplot(aes(x = ExterCond, y = SalePrice, fill = ExterCond)) +
+  geom_violin(alpha = 0.7, show.legend = FALSE) +
+  geom_boxplot(width = 0.2, alpha = 0.5, show.legend = FALSE) +
+  scale_y_continuous(labels = scales::dollar) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(
+    title = "ExterCond → SalePrice",
+    subtitle = "r = 0.02 (weak predictor)",
+    x = "Exterior Condition",
+    y = "Sale Price"
+  ) +
+  theme_minimal()
+
+grid.arrange(p1, p2, p3, p4, ncol = 2)
+
+top_categorical_vars <- c(
+  "OverallQual",
+  "Neighborhood",
+  "ExterQual",
+  "KitchenQual",
+  "BsmtQual",
+  "FireplaceQu"
+)
+
+# Calcular median price por nivel de cada variable
+median_prices <- lapply(top_categorical_vars, function(var) {
+  data_pisos_train[complete.cases(data_pisos_train), ] |>
+    group_by(!!sym(var)) |>
+    summarise(
+      median_price = median(SalePrice, na.rm = TRUE),
+      n = n()
+    ) |>
+    arrange(median_price) |>
+    mutate(
+      variable = var,
+      level = as.character(!!sym(var))
+    )
+}) |>
+  bind_rows()
+
+# Plot: Median price by level for top categorical variables
+ggplot(
+  median_prices,
+  aes(x = reorder(level, median_price), y = median_price, fill = variable)
+) +
+  geom_col(alpha = 0.8) +
+  geom_text(
+    aes(label = scales::dollar(median_price, accuracy = 1)),
+    hjust = -0.1,
+    size = 2.5
+  ) +
+  scale_y_continuous(labels = scales::dollar, limits = c(0, 350000)) +
+  scale_fill_viridis_d(name = "Variable") +
+  coord_flip() +
+  facet_wrap(~variable, scales = "free_y", ncol = 2) +
+  labs(
+    title = "Top Categorical Predictors: Median SalePrice by Level",
+    subtitle = "Clear monotonic relationships indicate strong predictive power",
+    x = NULL,
+    y = "Median Sale Price"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    strip.text = element_text(face = "bold", size = 10),
+    panel.spacing = unit(1, "lines")
+  )
+
+##TODO: PENDIENTE HACER UN ANALISIS EN PROFUNDIDAD DE LAS VARIABLES CATEGORICAS (TODAS) PARA DESCARTAR LAS REDUNDANTES
+##TODO: PENDIENTE HACER UN ANALISIS EN PROFUNDIDAD DE LAS VARIABLES NUMÉRICAS (TODAS) PARA DESCARTAR LAS REDUNDANTES
+
+## Eliminación de variables categóricas redundantes
+variables_categoricas_redundantes <- c("GarageCond", "ExterCond", "Exterior2nd")
+data_pisos_train <- data_pisos_train %>%
+  select(-all_of(variables_categoricas_redundantes))
+data_pisos_test <- data_pisos_test %>%
+  select(-all_of(variables_categoricas_redundantes))
+
+## --------------------------------------- Identificación de missings ----------------------------------------------
 plot_missing(data_pisos_train)
 
 # 1. Overall missing pattern visualization
@@ -420,7 +843,6 @@ data_pisos_train |>
   theme(legend.position = "none")
 
 
-
 ## ----------------------------------------------------------------------------------------------------------
 ## ----------------------------------------- MISSING IMPUTATION----------------------------------------------
 ## ----------------------------------------------------------------------------------------------------------
@@ -461,6 +883,7 @@ cat(
 
 # Step 4: Extraer datos completos y separar
 data_full_completed <- complete(impute_unified, 1)
+
 
 # Recuperar Train
 data_pisos_train_imputed <- data_full_completed %>%
@@ -522,7 +945,10 @@ cond_val
 library(car) # Necesario para la funcion vif()
 
 # 1. Ajustamos un modelo auxiliar con todas las numericas
-model_vif <- lm(SalePrice ~ ., data = data_pisos_train_imputed %>% select(where(is.numeric)))
+model_vif <- lm(
+  SalePrice ~ .,
+  data = data_pisos_train_imputed %>% select(where(is.numeric))
+)
 
 # 2. Calculamos los valores VIF
 vif_values <- vif(model_vif)
@@ -555,7 +981,9 @@ ggplotly(vif_graph)
 det_val <- det(cor(numeric_vars))
 cat("\n------------------------------------------------\n")
 cat("DETERMINANTE DE LA MATRIZ:", format(det_val, scientific = FALSE), "\n")
-if (det_val < 0.001) cat(" ALERTA: Determinante cercano a 0. Redundancia muy alta.\n")
+if (det_val < 0.01) {
+  cat(" ALERTA: Determinante cercano a 0. Redundancia muy alta.\n")
+}
 cat("------------------------------------------------\n")
 
 # B) Autovalores (Eigenvalues)
@@ -568,7 +996,6 @@ print(tail(round(eigen_val, 5), 5))
 ## ----------------------------------------------------------------------------------------------------------
 ## ------------------------------------------- PCA EXPLORATORIO ---------------------------------------------
 ## ----------------------------------------------------------------------------------------------------------
-
 
 # 1. Preparación correcta de los datos
 # Seleccionamos solo las predictoras numéricas (excluimos el target SalePrice)
@@ -583,17 +1010,57 @@ res_pca <- PCA(X_pca, scale.unit = TRUE, ncp = 10, graph = FALSE)
 # 3. Scree Plot (Gráfico de sedimentación)
 # FUNDAMENTAL: ¿Cuánta información retenemos?
 # Buscamos el "codo" o componentes con eigenvalue > 1 (Criterio de Kaiser)
-scree_plot <- fviz_eig(res_pca, addlabels = TRUE, ylim = c(0, 50)) +
-  labs(
-    title = "Scree Plot: % de Varianza Explicada",
-    subtitle = "Busca el 'codo' donde la ganancia de información se aplana"
+pca_screeplot_eigenvalues <- fviz_screeplot(
+  res_pca,
+  addlabels = T,
+  choice = "eigenvalue"
+) +
+  geom_abline(
+    intercept = 1,
+    slope = 0,
+    colour = "red",
+    linetype = "dashed",
+    linewidth = 0.5
+  ) +
+  annotate(
+    "text",
+    x = Inf,
+    y = 1,
+    label = "Kaiser's criterion",
+    hjust = 1.05,
+    vjust = -0.5,
+    color = "red",
+    size = 3.5
+  ) +
+  geom_abline(
+    intercept = 0.7,
+    slope = 0,
+    colour = "orange",
+    linetype = "dotted",
+    linewidth = 0.5
+  ) +
+  annotate(
+    "text",
+    x = Inf,
+    y = 0.7,
+    label = "Jollife's criterion",
+    hjust = 1.05,
+    vjust = -0.5,
+    color = "orange",
+    size = 3.5
   )
-ggplotly(scree_plot)
+
+pca_screeplot_variance <- fviz_screeplot(
+  res_pca,
+  addlabels = T,
+  choice = "variance"
+)
 
 # 4. Círculo de Correlaciones (Variables)
 # Nos dice CÓMO se relacionan las variables originales con las nuevas dimensiones.
 # Coloreamos por 'contrib': Las que más pesan en la definición de los ejes.
-var_plot <- fviz_pca_var(res_pca,
+var_plot <- fviz_pca_var(
+  res_pca,
   col.var = "contrib", # Variables importantes en rojo
   gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
   repel = TRUE, # Evita solapamiento de texto
@@ -606,7 +1073,57 @@ var_plot <- fviz_pca_var(res_pca,
   )
 print(var_plot)
 
+## Contribution plots
+pca_contribution_dim1 <- fviz_contrib(
+  res_pca,
+  choice = "var",
+  axes = 1,
+  top = 10
+)
+pca_contribution_dim2 <- fviz_contrib(
+  res_pca,
+  choice = "var",
+  axes = 2,
+  top = 10
+)
+pca_contribution_dim3 <- fviz_contrib(
+  res_pca,
+  choice = "var",
+  axes = 3,
+  top = 10
+)
+
+## Correlation between original variables and PC's
+cor_matrix_pca <- res_pca$var$coord[, 1:6]
+rownames(cor_matrix_pca) <- unlist(var_label(data_pisos_train_imputed)[rownames(
+  cor_matrix_pca
+)])
+
+heatmap_correlations_PCA_originalvariables <- pheatmap(
+  cor_matrix_pca,
+  cluster_rows = FALSE,
+  cluster_cols = FALSE,
+  display_numbers = TRUE,
+  color = colorRampPalette(c("blue", "white", "red"))(100),
+  main = "Correlations between original variables and PCs (1-6)",
+  fontsize_row = 8
+)
+
 # 5. Tabla de Contribuciones (Interpretación analítica)
+
+fviz_pca_var(
+  res_pca,
+  col.var = "contrib", # Variables importantes en rojo
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+  repel = TRUE, # Evita solapamiento de texto
+  select.var = list(contrib = 20), # Mostrar solo las 20 Top para no saturar
+  alpha.var = 0.8
+) +
+  labs(
+    title = "Mapa de Variables (Top 20 Contribuciones)",
+    subtitle = "Vectores cercanos = Alta correlación positiva | Opuestos = Negativa | 90º = No relacionadas"
+  )
+
 # ¿Qué define a la Dimensión 1 y 2? (Esencial para dar sentido de negocio)
 cat("\n--- Top 10 variables que definen la Dimensión 1 (Eje X) ---\n")
 print(head(sort(res_pca$var$contrib[, 1], decreasing = TRUE), 10))
@@ -614,7 +1131,124 @@ print(head(sort(res_pca$var$contrib[, 1], decreasing = TRUE), 10))
 cat("\n--- Top 10 variables que definen la Dimensión 2 (Eje Y) ---\n")
 print(head(sort(res_pca$var$contrib[, 2], decreasing = TRUE), 10))
 
+## Individuals plots
+pca_individuals_neighbourhood <- fviz_pca_ind(
+  res_pca,
+  label = "none",
+  axes = c(1, 2),
+  geom = "point",
+  habillage = data_pisos_train_imputed$Neighborhood,
+  pointshape = 19
+) +
+  xlim(c(-3, 5))
+
+
+## Rotación varimax para ver patrones ocultos en los datos
+# r
+# ...existing code...
+# Ejemplo: rotación varimax y oblimin para PCA exploratorio
+
+# Requiere: install.packages(c("psych","GPArotation","pheatmap"))
+library(psych)
+library(GPArotation)
+library(pheatmap)
+
+# 1) Preparar matriz numérica (usar dataset ya imputado)
+X <- data_pisos_train_imputed |>
+  select(where(is.numeric), -Id, -SalePrice)
+
+# 2) Estandarizar
+X_scaled <- scale(X)
+
+# 3) Eigenvalues para decidir nº de factores (criterio Kaiser > 1)
+eig_vals <- eigen(cor(X_scaled))$values
+nfactors <- sum(eig_vals > 1) # puedes ajustar manualmente
+# opcional: limitar a un máximo razonable
+nfactors <- min(nfactors, 8)
+
+# 4) PCA + rotación Varimax (ortogonal) y Oblimin (oblicua)
+set.seed(123)
+pca_varimax <- principal(
+  r = X_scaled,
+  nfactors = nfactors,
+  rotate = "varimax",
+  scores = TRUE,
+  method = "pc" # componentes principales
+)
+
+pca_oblimin <- principal(
+  r = X_scaled,
+  nfactors = nfactors,
+  rotate = "oblimin", # oblimin oblicuo (GPArotation backend)
+  scores = TRUE,
+  method = "pc"
+)
+
+# 5) Extraer cargas y scores
+varimax_loadings <- pca_varimax$loadings |> as.matrix()
+oblimin_loadings <- pca_oblimin$loadings |> as.matrix()
+
+varimax_scores <- as.data.frame(pca_varimax$scores)
+oblimin_scores <- as.data.frame(pca_oblimin$scores)
+
+# 6) Heatmaps rápidos de cargas (abs para ver intensidad)
+varimax_cor_matrix <- varimax_loadings
+
+# Heatmap para VARIMAX
+pheatmap(
+  varimax_cor_matrix,
+  cluster_rows = FALSE,
+  cluster_cols = FALSE,
+  display_numbers = TRUE,
+  number_format = "%.2f",
+  fontsize_number = 10,
+  color = colorRampPalette(c("blue", "white", "red"))(100),
+  main = "Correlations: Original Variables vs Varimax Rotated Components",
+  fontsize_row = 8,
+  breaks = seq(-1, 1, length.out = 101),
+  legend_breaks = c(-1, -0.5, 0, 0.5, 1)
+)
+
+# OBLIMIN: Para rotación oblicua, usar la estructura de patrones (pattern matrix)
+# En oblimin, las cargas no son directamente correlaciones por la oblicuidad
+# Usamos la "structure matrix" que sí representa correlaciones
+oblimin_cor_matrix <- oblimin_loadings
+
+pheatmap(
+  oblimin_cor_matrix,
+  cluster_rows = FALSE,
+  cluster_cols = FALSE,
+  display_numbers = TRUE,
+  number_format = "%.2f",
+  fontsize_number = 10,
+  color = colorRampPalette(c("blue", "white", "red"))(100),
+  main = "Correlations: Original Variables vs Oblimin Rotated Components",
+  fontsize_row = 8,
+  breaks = seq(-1, 1, length.out = 101),
+  legend_breaks = c(-1, -0.5, 0, 0.5, 1)
+)
+
+# 7) Resultado final utilizable
+rotated_solutions <- list(
+  nfactors = nfactors,
+  eigenvalues = eig_vals,
+  varimax = list(
+    model = pca_varimax,
+    loadings = varimax_loadings,
+    scores = varimax_scores
+  ),
+  oblimin = list(
+    model = pca_oblimin,
+    loadings = oblimin_loadings,
+    scores = oblimin_scores
+  )
+)
+
+rotated_solutions
+# ...existing code...
 
 ## ----------------------------------------------------------------------------------------------------------
 ## -------------------------------------------------- MODELADO ----------------------------------------------
 ## ----------------------------------------------------------------------------------------------------------
+
+## TODO: Modelo lasso para ver variables que se pueden descartar
