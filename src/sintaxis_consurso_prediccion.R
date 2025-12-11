@@ -26,7 +26,8 @@ pacman::p_load(
   ggpubr,
   naniar,
   mice,
-  car
+  car, 
+  caret
 )
 
 `%notin%` <- Negate("%in%")
@@ -909,6 +910,119 @@ data_pisos_test_imputed <- data_full_completed %>%
 
 sum(is.na(data_pisos_train_imputed))
 sum(is.na(data_pisos_test_imputed))
+
+## ----------------------------------------------------------------------------------------------------------
+## ----------------------- DIAGNÓSTICO DE INFLUENTIAL POINTS --------------------------------
+## ----------------------------------------------------------------------------------------------------------
+# Ajustar modelo preliminar para diagnóstico (usando solo numéricas)
+numeric_data_diag <- data_pisos_train_imputed %>% select(where(is.numeric))
+model_diag <- lm(SalePrice ~ ., data = numeric_data_diag)
+
+diagnostics <- data_pisos_train_imputed %>%
+  mutate(
+    # Residuos Estandarizados: Detectan outliers en la variable respuesta (Y).
+    # Regla: Valor absoluto > 3 indica outlier.
+    std_resid = rstandard(model_diag),
+    
+    # Distancia de Cook: Detecta observaciones influyentes (combinación de outlier + leverage).
+    # Mide cuánto cambiaría el modelo si se elimina la observación.
+    cooks_d = cooks.distance(model_diag),
+    
+    # Leverage (Hat values): Detecta valores inusuales en los predictores (X).
+    hat_val = hatvalues(model_diag)
+  )
+
+# Rules of Thumb
+n <- nrow(numeric_data_diag)
+k <- length(coef(model_diag)) - 1
+cooks_threshold <- 4 / (n - k - 1)      # Cook
+leverage_threshold <- 2 * (k + 1) / n   # Leverage
+
+# Visualización
+# Gráfico de Influencia vs Residuos: Los puntos rojos son los "peligrosos" (Alta influencia + Mal ajuste).
+p_diag <- ggplot(diagnostics, aes(x = hat_val, y = std_resid)) +
+  geom_point(aes(color = cooks_d > cooks_threshold), alpha = 0.6) +
+  geom_hline(yintercept = c(-3, 3), linetype = "dashed", color = "red") +
+  geom_vline(xintercept = leverage_threshold, linetype = "dashed", color = "blue") +
+  scale_color_manual(values = c("black", "red"), labels = c("Secure", "Influential")) +
+  labs(title = "Diagnostic: Cook's Distance & Influence",
+       subtitle = "Red points: Cook's D > 4/(n-k-1). Y axis: Residuals > 3.",
+       x = "Leverage (Hat Values)", y = "Standardized Residuals", color = "State") +
+  theme_minimal()
+
+# Validación (TotalSF vs Precio)
+# Para confirmar que los outliers matemáticos coinciden con los casos "raros" (casas enormes y baratas).
+p_val <- ggplot(diagnostics, aes(x = TotalSF, y = SalePrice)) +
+  geom_point(aes(color = cooks_d > cooks_threshold), alpha = 0.6) +
+  scale_color_manual(values = c("steelblue", "red")) +
+  labs(title = "Visual Validation: TotalSF vs Price", 
+       subtitle = "Influential points are visually distinguishable") +
+  theme_minimal()
+
+grid.arrange(p_diag, p_val, ncol = 2)
+
+# Identificar candidatos a eliminar
+# Nos centramos en los que son Influyentes (Cook alto) Y además tienen residuo alto.
+outliers_to_remove <- diagnostics %>% 
+  filter(cooks_d > cooks_threshold & abs(std_resid) > 3) %>% 
+  select(Id, SalePrice, TotalSF, cooks_d, std_resid) %>% 
+  arrange(desc(cooks_d))
+
+print(outliers_to_remove)
+
+## ----------------------------------------------------------------------------------------------------------
+## ----------------------- VALIDATION: BASE R DIAGNOSTICS ------------------------------
+## ----------------------------------------------------------------------------------------------------------
+# We perform a double-check using the standard R functions described in class to ensure 
+# our previous filtering makes sense.
+
+# 1. Standard Diagnostic Plot
+par(mfrow = c(2, 2))
+plot(model_diag, main = "Base R Diagnostics")
+par(mfrow = c(1, 1)) # Reset layout
+
+# 2. Influence Measures Table
+# This function automatically flags points based on internal R thresholds.
+inf_measures <- influence.measures(model_diag)
+summary_inf <- summary(inf_measures)
+
+# We filter to show only those that R considers highly influential in Cook's D ('cook.d')
+print(head(summary_inf))
+
+ids_to_remove <- outliers_to_remove$Id
+
+# --- VERIFICACIÓN DE MAGNITUD (Para decidir si quitamos 17 o menos) ---
+print(
+  outliers_to_remove %>% 
+    select(Id, SalePrice, TotalSF, cooks_d) %>%
+    mutate(
+      # Cuántas veces supera el umbral (Ratio de severidad)
+      Severity = round(cooks_d / cooks_threshold, 1) 
+    )
+)
+
+# Gráfico de codo para ver el salto
+ggplot(outliers_to_remove, aes(x = reorder(Id, -cooks_d), y = cooks_d)) +
+  geom_col(fill = "darkred") +
+  geom_hline(yintercept = cooks_threshold, linetype = "dashed", color = "blue") +
+  labs(title = "Influential points severity",
+       x = "ID", y = "Cook's distance") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90))
+
+# Solo eliminamos observaciones que son físicamente anómalas (Casas > 7500 sqft Total con precio bajo).
+# Esto corresponde a los IDs 1299 y 524 que vemos extremos en el gráfico de severidad.
+
+ids_final_removal <- outliers_to_remove %>% 
+  filter(TotalSF > 7500) %>% 
+  pull(Id)
+
+# Creamos 'data_pisos_train_clean' para el modelado.
+if(length(ids_final_removal) > 0) {
+  data_pisos_train_clean <- data_pisos_train_imputed %>% filter(!Id %in% ids_final_removal)
+} else {
+  data_pisos_train_clean <- data_pisos_train_imputed
+}
 
 ## ----------------------------------------------------------------------------------------------------------
 ## --------------------------------- ANÁLISIS DE CORRELACIONES Y MULTICOLINEALIDAD --------------------------
