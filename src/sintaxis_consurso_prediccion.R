@@ -1530,3 +1530,211 @@ rotated_solutions
 ## ----------------------------------------------------------------------------------------------------------
 
 ## TODO: Modelo lasso para ver variables que se pueden descartar
+
+# LASSO: librerías
+pacman::p_load(glmnet)
+
+# LASSO: preparar matriz de diseño
+model_df <- data_pisos_train_clean |>
+  mutate(
+    y = if (exists("target_var")) .data[[target_var]] else log_SalePrice
+  ) |>
+  select(-SalePrice, -log_SalePrice)
+
+X <- model.matrix(y ~ . - 1, data = model_df |> select(-Id))
+y <- model_df$y
+
+# LASSO: validación cruzada para elegir lambda y ver nº de variables
+set.seed(123)
+cv_lasso <- cv.glmnet(
+  x = X,
+  y = y,
+  alpha = 1,
+  family = "gaussian",
+  nfolds = 10,
+  standardize = TRUE
+)
+
+lasso_fit_min <- glmnet(
+  x = X, y = y, alpha = 1, family = "gaussian",
+  lambda = cv_lasso$lambda.min, standardize = TRUE
+)
+
+lasso_fit_1se <- glmnet(
+  x = X, y = y, alpha = 1, family = "gaussian",
+  lambda = cv_lasso$lambda.1se, standardize = TRUE
+)
+
+n_nonzero_min <- sum(coef(lasso_fit_min) != 0) - 1
+n_nonzero_1se <- sum(coef(lasso_fit_1se) != 0) - 1
+
+# LASSO: variables seleccionadas (coeficientes distintos de 0)
+coef_min <- coef(lasso_fit_min)
+selected_min <- tibble(
+  feature = rownames(coef_min),
+  coef = as.numeric(coef_min)
+) |>
+  filter(feature != "(Intercept)", coef != 0) |>
+  arrange(desc(abs(coef)))
+
+coef_1se <- coef(lasso_fit_1se)
+selected_1se <- tibble(
+  feature = rownames(coef_1se),
+  coef = as.numeric(coef_1se)
+) |>
+  filter(feature != "(Intercept)", coef != 0) |>
+  arrange(desc(abs(coef)))
+
+# LASSO: convertir selección a variables originales para poder descartar en tu data.frame
+feature_map <- tibble(feature = colnames(X)) |>
+  mutate(variable_original = sub(":.*$", "", feature))
+
+vars_keep_1se <- feature_map |>
+  filter(feature %in% selected_1se$feature) |>
+  distinct(variable_original) |>
+  pull(variable_original)
+
+vars_drop_1se <- setdiff(
+  names(data_pisos_train_clean),
+  c("Id", "SalePrice", "log_SalePrice", vars_keep_1se)
+)
+
+# LASSO: objetos útiles para inspección rápida
+lasso_results <- list(
+  target = if (exists("target_var")) target_var else "log_SalePrice",
+  cv = cv_lasso,
+  lambda = list(min = cv_lasso$lambda.min, x1se = cv_lasso$lambda.1se),
+  n_nonzero = list(min = n_nonzero_min, x1se = n_nonzero_1se),
+  selected = list(min = selected_min, x1se = selected_1se),
+  vars_keep_x1se = vars_keep_1se,
+  vars_drop_x1se = vars_drop_1se
+)
+
+lasso_results
+
+length(vars_keep_1se)  # Variables a mantener
+length(vars_drop_1se)  # Variables a descartar
+
+
+# LASSO: evaluación holdout (RMSE) para elegir entre lambda.min y lambda.1se
+set.seed(123)
+idx_train <- sample(seq_len(nrow(model_df)), size = floor(0.8 * nrow(model_df)))
+X_tr <- X[idx_train, , drop = FALSE]
+y_tr <- y[idx_train]
+X_va <- X[-idx_train, , drop = FALSE]
+y_va <- y[-idx_train]
+
+fit_min <- glmnet(x = X_tr, y = y_tr, alpha = 1, family = "gaussian", lambda = cv_lasso$lambda.min, standardize = TRUE)
+fit_1se <- glmnet(x = X_tr, y = y_tr, alpha = 1, family = "gaussian", lambda = cv_lasso$lambda.1se, standardize = TRUE)
+
+pred_min <- as.numeric(predict(fit_min, newx = X_va))
+pred_1se <- as.numeric(predict(fit_1se, newx = X_va))
+
+rmse <- function(a, b) sqrt(mean((a - b)^2))
+rmse_min <- rmse(y_va, pred_min)
+rmse_1se <- rmse(y_va, pred_1se)
+
+rmse_results <- tibble(model = c("lambda.min", "lambda.1se"), rmse = c(rmse_min, rmse_1se)) |>
+  arrange(rmse)
+
+rmse_results
+
+# LASSO: entrenar modelo final con el lambda elegido
+lambda_final <- if (rmse_1se <= rmse_min) cv_lasso$lambda.1se else cv_lasso$lambda.min
+
+lasso_final <- glmnet(
+  x = X,
+  y = y,
+  alpha = 1,
+  family = "gaussian",
+  lambda = lambda_final,
+  standardize = TRUE
+)
+
+lasso_final
+
+# LASSO: predicción en test y creación de submission (deshaciendo log si aplica)
+test_df <- data_pisos_test_imputed |>
+  select(names(model_df) |> setdiff("y"))
+
+X_test <- model.matrix(~ . - 1, data = test_df |> select(-Id))
+pred_test <- as.numeric(predict(lasso_final, newx = X_test))
+
+SalePrice_pred <- if (exists("target_var") && target_var == "SalePrice") pred_test else exp(pred_test)
+
+submission <- tibble(
+  Id = data_pisos_test_imputed$Id,
+  SalePrice = SalePrice_pred
+)
+
+submission # Del lasso
+
+# Con este holdout gana lambda.min. (RMSE 0.124 vs 0.128)
+# Ahora el siguiente paso útil es mejorar generalización con Elastic Net
+# (mezcla ridge+lasso) y quedarte con el mejor por RMSE.
+
+# Elastic Net: grid simple de alpha y comparación por RMSE
+alphas <- c(0.1, 0.3, 0.5, 0.7, 0.9, 1)
+
+enet_grid <- purrr::map_dfr(alphas, function(a) {
+  set.seed(123)
+  cv <- cv.glmnet(
+    x = X_tr,
+    y = y_tr,
+    alpha = a,
+    family = "gaussian",
+    nfolds = 10,
+    standardize = TRUE
+  )
+  fit <- glmnet(
+    x = X_tr, y = y_tr,
+    alpha = a, family = "gaussian",
+    lambda = cv$lambda.min,
+    standardize = TRUE
+  )
+  pred <- as.numeric(predict(fit, newx = X_va))
+  tibble(alpha = a, lambda_min = cv$lambda.min, rmse = rmse(y_va, pred))
+}) |>
+  arrange(rmse)
+
+enet_grid
+
+
+# Todas las alphas dan RMSE ~ 0.124-0.125:
+# modelo está en una zona “plana” (cualquier mezcla ridge/lasso rinde igual en ese holdout)
+# o
+# el holdout único no discrimina bien (por eso conviene repetir seeds o usar CV anidada si quieres comparar finamente).
+
+# Elastic Net: entrenar final con el mejor alpha y crear submission
+best_alpha <- enet_grid$alpha[1]
+
+set.seed(123)
+cv_final <- cv.glmnet(
+  x = X,
+  y = y,
+  alpha = best_alpha,
+  family = "gaussian",
+  nfolds = 10,
+  standardize = TRUE
+)
+
+enet_final <- glmnet(
+  x = X,
+  y = y,
+  alpha = best_alpha,
+  family = "gaussian",
+  lambda = cv_final$lambda.min,
+  standardize = TRUE
+)
+
+pred_test <- as.numeric(predict(enet_final, newx = X_test))
+SalePrice_pred <- if (exists("target_var") && target_var == "SalePrice") pred_test else exp(pred_test)
+
+submission <- tibble(
+  Id = data_pisos_test_imputed$Id,
+  SalePrice = SalePrice_pred
+)
+
+submission # Del elastic net
+
+
