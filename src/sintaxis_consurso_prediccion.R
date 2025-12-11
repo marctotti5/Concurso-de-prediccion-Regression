@@ -27,7 +27,8 @@ pacman::p_load(
   naniar,
   mice,
   car, 
-  caret
+  caret,
+  DescTools
 )
 
 `%notin%` <- Negate("%in%")
@@ -1025,13 +1026,106 @@ if(length(ids_final_removal) > 0) {
 }
 
 ## ----------------------------------------------------------------------------------------------------------
-## --------------------------------- ANÁLISIS DE CORRELACIONES Y MULTICOLINEALIDAD --------------------------
+## ----------------------- NORMALITY ANALYSIS (TARGET VARIABLE) -------------------------------------
+## ----------------------------------------------------------------------------------------------------------
+
+# 1. Visual Inspection
+target_df <- data_pisos_train_clean
+
+p1 <- ggplot(target_df, aes(x = SalePrice)) + geom_density(fill = "skyblue", alpha=0.5) + labs(title = "Original")
+p2 <- ggplot(target_df, aes(sample = SalePrice)) + stat_qq() + stat_qq_line(color = "red")
+p3 <- ggplot(target_df, aes(x = log(SalePrice))) + geom_density(fill = "lightgreen", alpha=0.5) + labs(title = "Log Transformed")
+p4 <- ggplot(target_df, aes(sample = log(SalePrice))) + stat_qq() + stat_qq_line(color = "darkgreen")
+
+grid.arrange(p1, p2, p3, p4, ncol = 2)
+
+# 2. Skewness Check & Transformation
+skew_val <- e1071::skewness(target_df$SalePrice, na.rm = TRUE)
+
+if(abs(skew_val) > 0.75) {
+  data_pisos_train_clean$log_SalePrice <- log(data_pisos_train_clean$SalePrice)
+  target_var <- "log_SalePrice"
+  print("-> Log transformation applied due to high skewness.")
+} else {
+  target_var <- "SalePrice"
+  print("-> No transformation needed.")
+}
+
+## ----------------------------------------------------------------------------------------------------------
+## ----------------------- ANÁLISIS CATEGÓRICO (V de Cramer) ------------------------------
+## ----------------------------------------------------------------------------------------------------------
+
+# Preparación de variables (Factores con >1 nivel)
+data_cat_clean <- data_pisos_train_clean %>%
+  select(where(is.factor)) %>%
+  select(-any_of("Id")) %>%
+  mutate(across(everything(), droplevels))
+
+# A.1. Matriz de Redundancia (V de Cramer)
+cramer_matrix <- matrix(0, nrow = length(cat_vars), ncol = length(cat_vars))
+rownames(cramer_matrix) <- colnames(cramer_matrix) <- cat_vars
+
+# Bucle optimizado usando la función estándar CramerV
+cramer_matrix <- PairApply(data_cat_clean, FUN = CramerV, symmetric = TRUE)
+
+# Visualizar redundancias altas (> 0.8)
+redundant_idx <- which(cramer_matrix > 0.8 & cramer_matrix < 1, arr.ind = TRUE)
+
+  redundant_df <- data.frame(
+    Var1 = rownames(cramer_matrix)[redundant_idx[,1]],
+    Var2 = colnames(cramer_matrix)[redundant_idx[,2]],
+    CramerV = cramer_matrix[redundant_idx]
+  ) %>% 
+    distinct(CramerV, .keep_all = TRUE) %>% 
+    arrange(desc(CramerV))
+  
+  print("--- REDUNDANT PAIRS ---")
+  print(redundant_df)
+
+# We eliminate the variable MSSubClass (as for a complicated definition, see dictionary, and redundancy)
+data_pisos_train_clean <- data_pisos_train_clean %>% select(-MSSubClass)
+
+## ----------------------------------------------------------------------------------------------------------
+## ----------------------- RELEVANCIA CATEGÓRICAS (Kruskal-Wallis) ----------------------------------
+## ----------------------------------------------------------------------------------------------------------
+# Definir Target y Variables
+target_col <- "log_SalePrice"
+
+# Aseguramos que usamos las variables del dataset limpio
+current_cat_vars <- names(select(data_pisos_train_clean, where(is.factor)))
+current_cat_vars <- setdiff(current_cat_vars, "Id") # Excluir ID
+
+# 2. Ejecutar Test de Kruskal-Wallis
+# H0: La mediana del precio es igual en todos los niveles del factor.
+# Si P > 0.05, aceptamos H0 -> La variable NO importa para el precio.
+
+relevance_cat <- data.frame(Variable = character(), P_Value = numeric())
+
+for(var in current_cat_vars){
+  try({
+    # Formula dinámica: log_SalePrice ~ Variable
+    f <- as.formula(paste(target_col, "~", var))
+    kt <- kruskal.test(f, data = data_pisos_train_clean)
+    
+    relevance_cat <- rbind(relevance_cat, data.frame(Variable = var, P_Value = kt$p.value))
+  }, silent = TRUE)
+}
+
+# 3. Listar las irrelevantes
+vars_irrelevant <- relevance_cat %>% 
+  filter(P_Value > 0.05) %>% 
+  arrange(desc(P_Value))
+print(vars_irrelevant)
+
+
+## ----------------------------------------------------------------------------------------------------------
+## ------------------ ANÁLISIS DE CORRELACIONES Y MULTICOLINEALIDAD (VARIABLES NUMERICAS) -------------------
 ## ----------------------------------------------------------------------------------------------------------
 
 # Correlation plot
 
-numeric_vars <- data_pisos_train_imputed %>%
-  select(where(is.numeric), -SalePrice)
+numeric_vars <- data_pisos_train_clean %>%
+  select(where(is.numeric), -contains("SalePrice"))
 
 cor_matrix <- cor(numeric_vars, use = "pairwise.complete.obs")
 
@@ -1040,8 +1134,8 @@ correlation_plot <- ggcorrplot(
   method = "square",
   type = "lower",
   lab = TRUE,
-  lab_size = 2,
-  tl.cex = 6,
+  lab_size = 4,
+  tl.cex = 15,
   title = "Correlation Matrix"
 )
 correlation_plot
@@ -1051,12 +1145,12 @@ correlation_plot
 # Regla general: < 10 (Bien), 10-30 (Moderada), > 30 (Severa/Grave)
 
 # Seleccionar solo numéricas y ESCALAR (fundamental para kappa)
-X_matrix <- data_pisos_train_imputed %>%
-  select(where(is.numeric), -SalePrice) %>%
+X_matrix <- data_pisos_train_clean %>%
+  select(where(is.numeric), -Id, -contains("SalePrice")) %>% 
   scale()
 
 # Calcular numero de condicion
-cond_val <- kappa(X_matrix)
+cond_val <- kappa(na.omit(X_matrix))
 
 cond_val
 
@@ -1066,8 +1160,8 @@ cond_val
 
 # 1. Ajustamos un modelo auxiliar con todas las numericas
 model_vif <- lm(
-  SalePrice ~ .,
-  data = data_pisos_train_imputed %>% select(where(is.numeric))
+  log_SalePrice ~ ., 
+  data = data_pisos_train_clean %>% select(where(is.numeric), -Id, -SalePrice)
 )
 
 # 2. Calculamos los valores VIF
@@ -1091,7 +1185,7 @@ vif_graph <- vif_df %>%
   ) +
   theme_minimal()
 
-ggplotly(vif_graph)
+print(vif_graph)
 
 # Diagnostico Matematico (Determinante y Autovalores)
 # Confirma matematicamente la severidad detectada por el VIF.
