@@ -1029,6 +1029,9 @@ if(length(ids_final_removal) > 0) {
 ## ----------------------- NORMALITY ANALYSIS (TARGET VARIABLE) -------------------------------------
 ## ----------------------------------------------------------------------------------------------------------
 
+# ESTO LO HACEMOS DOS VECES, MARK LO HACE EN LAS SECCIONES INICIALES
+
+
 # 1. Visual Inspection
 target_df <- data_pisos_train_clean
 
@@ -1060,6 +1063,8 @@ data_cat_clean <- data_pisos_train_clean %>%
   select(where(is.factor)) %>%
   select(-any_of("Id")) %>%
   mutate(across(everything(), droplevels))
+
+cat_vars <- names(data_cat_clean)
 
 # A.1. Matriz de Redundancia (V de Cramer)
 cramer_matrix <- matrix(0, nrow = length(cat_vars), ncol = length(cat_vars))
@@ -1117,6 +1122,8 @@ vars_irrelevant <- relevance_cat %>%
   arrange(desc(P_Value))
 print(vars_irrelevant)
 
+# no hay irrelevants
+
 
 ## ----------------------------------------------------------------------------------------------------------
 ## ------------------ ANÁLISIS DE CORRELACIONES Y MULTICOLINEALIDAD (VARIABLES NUMERICAS) -------------------
@@ -1124,22 +1131,28 @@ print(vars_irrelevant)
 
 # Correlation plot
 
+# Correlation matrix con SalePrice al final
 numeric_vars <- data_pisos_train_clean %>%
-  select(where(is.numeric), -contains("SalePrice"))
+  select(where(is.numeric), -Id, -log_SalePrice) %>%
+  relocate(SalePrice, .after = last_col())
 
 cor_matrix <- cor(numeric_vars, use = "pairwise.complete.obs")
 
+# Heatmap completo (triangulo inferior y superior)
 correlation_plot <- ggcorrplot(
   cor_matrix,
   method = "square",
-  type = "lower",
+  type = "full",
   lab = TRUE,
-  lab_size = 4,
-  tl.cex = 15,
-  title = "Correlation Matrix"
+  lab_size = 2.5,
+  tl.cex = 9,
+  title = "Correlation Matrix: All Numeric Variables",
+  colors = c("darkblue", "white", "darkred")
 )
 correlation_plot
 
+
+# ------
 # Condition Number (Kappa)
 # Medida global de multicolinealidad.
 # Regla general: < 10 (Bien), 10-30 (Moderada), > 30 (Severa/Grave)
@@ -1153,6 +1166,29 @@ X_matrix <- data_pisos_train_clean %>%
 cond_val <- kappa(na.omit(X_matrix))
 
 cond_val
+#-------
+
+
+# TotRmsAbvGrd correlacion con otras 2 variables y redundante en significado
+# MoSold y YrSold no aportan info relevante para predecir el precio de venta: (r=-0.03 y r=-0.05 con SalePrice)
+# variables_a_eliminar <- c("TotRmsAbvGrd", "MoSold", "YrSold")
+# data_pisos_train_clean <- data_pisos_train_clean %>%
+#   select(-all_of(variables_a_eliminar))
+
+
+# ------
+# Volvemos a probar el condition number de kappa tras eliminar estas variables
+X_matrix <- data_pisos_train_clean %>%
+  select(where(is.numeric), -Id, -contains("SalePrice")) %>% 
+  scale()
+
+# Calcular numero de condicion
+cond_val <- kappa(na.omit(X_matrix))
+
+cond_val
+
+# Ha subido ligeramente asi que no las eliminamos
+#-------
 
 # VIF (Variance Inflation Factor)
 # Identifica que variable especifica causa la inflacion de varianza.
@@ -1193,13 +1229,10 @@ print(vif_graph)
 # A) Determinante de la matriz de correlacion
 # 1 = Independencia total | 0 = Multicolinealidad perfecta
 det_val <- det(cor(numeric_vars))
-cat("\n------------------------------------------------\n")
 cat("DETERMINANTE DE LA MATRIZ:", format(det_val, scientific = FALSE), "\n")
 if (det_val < 0.01) {
   cat(" ALERTA: Determinante cercano a 0. Redundancia muy alta.\n")
 }
-cat("------------------------------------------------\n")
-
 # B) Autovalores (Eigenvalues)
 # Valores cercanos a 0 indican dimensiones redundantes
 eigen_val <- eigen(cor(numeric_vars))$values
@@ -1216,6 +1249,13 @@ print(tail(round(eigen_val, 5), 5))
 # El PCA es muy sensible a escalas, por lo que el escalado es OBLIGATORIO (scale.unit = TRUE)
 X_pca <- data_pisos_train_imputed %>%
   select(where(is.numeric), -SalePrice)
+
+# Contar número de variables numéricas que quedan
+num_numeric_vars <- data_pisos_train_clean %>%
+  select(where(is.numeric), -Id, -SalePrice, -log_SalePrice) %>%
+  ncol()
+
+num_numeric_vars
 
 # 2. Ejecución del PCA con FactoMineR
 # ncp = 10: Guardamos las primeras 10 dimensiones para analizar
@@ -1264,11 +1304,15 @@ pca_screeplot_eigenvalues <- fviz_screeplot(
     size = 3.5
   )
 
+pca_screeplot_eigenvalues
+
 pca_screeplot_variance <- fviz_screeplot(
   res_pca,
   addlabels = T,
   choice = "variance"
 )
+
+pca_screeplot_variance
 
 # 4. Círculo de Correlaciones (Variables)
 # Nos dice CÓMO se relacionan las variables originales con las nuevas dimensiones.
@@ -1307,21 +1351,37 @@ pca_contribution_dim3 <- fviz_contrib(
   top = 10
 )
 
+grid.arrange(
+  pca_contribution_dim1,
+  pca_contribution_dim2,
+  pca_contribution_dim3,
+  ncol = 3
+)
+
 ## Correlation between original variables and PC's
 cor_matrix_pca <- res_pca$var$coord[, 1:6]
 rownames(cor_matrix_pca) <- unlist(var_label(data_pisos_train_imputed)[rownames(
   cor_matrix_pca
 )])
+cor_matrix_pca
 
 heatmap_correlations_PCA_originalvariables <- pheatmap(
   cor_matrix_pca,
   cluster_rows = FALSE,
   cluster_cols = FALSE,
   display_numbers = TRUE,
+  number_format = "%.2f",
+  fontsize_number = 8,
+  fontsize_row = 9,
+  fontsize_col = 10,
   color = colorRampPalette(c("blue", "white", "red"))(100),
   main = "Correlations between original variables and PCs (1-6)",
-  fontsize_row = 8
+  cellwidth = 50,
+  cellheight = 30,
+  margins = c(2, 4)
 )
+
+heatmap_correlations_PCA_originalvariables
 
 # 5. Tabla de Contribuciones (Interpretación analítica)
 
@@ -1355,6 +1415,8 @@ pca_individuals_neighbourhood <- fviz_pca_ind(
   pointshape = 19
 ) +
   xlim(c(-3, 5))
+
+pca_individuals_neighbourhood
 
 
 ## Rotación varimax para ver patrones ocultos en los datos
@@ -1409,7 +1471,7 @@ oblimin_scores <- as.data.frame(pca_oblimin$scores)
 varimax_cor_matrix <- varimax_loadings
 
 # Heatmap para VARIMAX
-pheatmap(
+heatmap_varimax <- pheatmap(
   varimax_cor_matrix,
   cluster_rows = FALSE,
   cluster_cols = FALSE,
@@ -1422,6 +1484,8 @@ pheatmap(
   breaks = seq(-1, 1, length.out = 101),
   legend_breaks = c(-1, -0.5, 0, 0.5, 1)
 )
+
+heatmap_varimax
 
 # OBLIMIN: Para rotación oblicua, usar la estructura de patrones (pattern matrix)
 # En oblimin, las cargas no son directamente correlaciones por la oblicuidad
