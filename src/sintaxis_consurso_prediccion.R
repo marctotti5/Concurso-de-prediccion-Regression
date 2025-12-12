@@ -1684,3 +1684,31 @@ export_test <- tibble::tibble(
 
 # readr::write_csv(export_test, "results/predicted_price_test.csv")
 # export_test
+
+# Comprobación 1: nº de filas (debe ser igual)
+c(
+  n_test_inicial = nrow(data_pisos_test),
+  n_test_imputed = nrow(data_pisos_test_imputed),
+  n_export = nrow(export_test)
+)
+
+# Comprobación 2: no hay NA en la predicción
+sum(is.na(export_test$`Predicted.price`))
+
+# Comprobación 3 (recomendada): mismo Id y mismo orden (si export_test NO tiene Id, lo construimos)
+if ("Id" %in% names(data_pisos_test)) {
+  export_check <- tibble::tibble(
+    Id = data_pisos_test$Id,
+    `Predicted.price` = export_test$`Predicted.price`
+  )
+
+  list(
+    same_ids = identical(as.character(export_check$Id), as.character(data_pisos_test$Id)),
+    any_duplicated_ids = anyDuplicated(export_check$Id),
+    n_export_check = nrow(export_check)
+  )
+}
+
+# TOPP
+
+# Queda Godness of fit y las questions extras 
