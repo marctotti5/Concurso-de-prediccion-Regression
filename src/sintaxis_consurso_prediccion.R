@@ -1712,3 +1712,203 @@ if ("Id" %in% names(data_pisos_test)) {
 # TOPP
 
 # Queda Godness of fit y las questions extras 
+
+
+## ----------------------------------------------------------------------------------------------------------
+## --------------------------- GOODNESS OF FIT (IN-SAMPLE vs OUT-OF-SAMPLE) --------------------------------
+## ----------------------------------------------------------------------------------------------------------
+
+rmse <- function(a, b) sqrt(mean((a - b)^2))
+
+# Asegurar predictores finales (sin targets/leakage)
+vars_keep_final <- setdiff(vars_keep_1se, c("SalePrice", "log_SalePrice", "bc_SalePrice"))
+
+# Dataset modelado final (log)
+df_model <- data_pisos_train_clean |>
+  dplyr::select(dplyr::any_of(vars_keep_final), SalePrice) |>
+  dplyr::mutate(y = log(SalePrice)) |>
+  dplyr::select(-SalePrice)
+
+# 1) In-sample: entreno en todo TRAIN y evalúo en TRAIN (log RMSE)
+ols_in <- lm(y ~ ., data = df_model)
+pred_in <- as.numeric(predict(ols_in, newdata = df_model))
+rmse_in_log <- rmse(df_model$y, pred_in)
+
+# 2) Out-of-sample: split fijo 80/20 + RMSE (log)
+set.seed(123)
+idx_tr <- sample(seq_len(nrow(df_model)), size = floor(0.8 * nrow(df_model)))
+tr <- df_model[idx_tr, , drop = FALSE]
+va <- df_model[-idx_tr, , drop = FALSE]
+
+ols_oos <- lm(y ~ ., data = tr)
+pred_oos <- as.numeric(predict(ols_oos, newdata = va))
+rmse_oos_log <- rmse(va$y, pred_oos)
+
+# Si quieres RMSE en euros también (opcional, por si te lo piden):
+rmse_in_eur <- rmse(exp(df_model$y), exp(pred_in))
+rmse_oos_eur <- rmse(exp(va$y), exp(pred_oos))
+
+gof <- tibble::tibble(
+  metric = c("RMSE_log", "RMSE_eur"),
+  in_sample = c(rmse_in_log, rmse_in_eur),
+  out_of_sample = c(rmse_oos_log, rmse_oos_eur)
+)
+
+list(
+  gof = gof,
+  n_train = nrow(df_model),
+  n_train_split = nrow(tr),
+  n_valid_split = nrow(va)
+)
+
+## ----------------------------------------------------------------------------------------------------------
+## ---------------------- INTERPRETACIÓN: VARIABLES IMPORTANTES + PERFIL BARATO/CARO ------------------------
+## ----------------------------------------------------------------------------------------------------------
+
+vars_keep_final <- setdiff(vars_keep_1se, c("SalePrice", "log_SalePrice", "bc_SalePrice"))
+
+df_int <- data_pisos_train_clean |>
+  dplyr::select(dplyr::any_of(c(vars_keep_final, "SalePrice")))
+
+df_model <- df_int |>
+  dplyr::mutate(y = log(SalePrice)) |>
+  dplyr::select(-SalePrice)
+
+ols_final_log <- lm(y ~ ., data = df_model)
+
+coef_table <- broom::tidy(ols_final_log) |>
+  dplyr::filter(term != "(Intercept)") |>
+  dplyr::mutate(abs_t = abs(statistic)) |>
+  dplyr::arrange(dplyr::desc(abs_t))
+
+top_terms <- coef_table |> dplyr::slice(1:10)
+
+# Perfil de baratos/caros (por percentiles del SalePrice original)
+cuts <- quantile(df_int$SalePrice, probs = c(0.1, 0.9), na.rm = TRUE)
+df_profile <- df_int |>
+  dplyr::mutate(
+    bucket = dplyr::case_when(
+      SalePrice <= cuts[[1]] ~ "cheap_10pct",
+      SalePrice >= cuts[[2]] ~ "expensive_10pct",
+      TRUE ~ "middle"
+    )
+  ) |>
+  dplyr::filter(bucket != "middle")
+
+profile_summary <- df_profile |>
+  dplyr::summarize(
+    dplyr::across(where(is.numeric), median, na.rm = TRUE),
+    .by = bucket
+  )
+
+list(
+  top_terms_by_abs_t = top_terms,
+  profile_summary_medians = profile_summary
+)
+
+## ----------------------------------------------------------------------------------------------------------
+## ------------------------------------------- CONCLUSIONES (REPORT) ----------------------------------------
+## ----------------------------------------------------------------------------------------------------------
+# GOODNESS OF FIT (RMSE)
+# - Hemos evaluado el modelo en escala log (target = log(SalePrice)) porque así lo pide el enunciado.
+# - Within-sample (in-sample): RMSE_log = 0.156
+# - Out-of-sample (split 80/20): RMSE_log = 0.165
+# - La diferencia entre ambos es pequeña (~0.009), lo que sugiere buena generalización y poco sobreajuste.
+# - En escala original (euros/dólares), los RMSE son:
+#   - RMSE_eur (in-sample)  ≈ 28,785
+#   - RMSE_eur (out-of-sample) ≈ 29,200
+# - También aquí el incremento es pequeño (~415), lo que refuerza la estabilidad del modelo.
+# - Interpretación aproximada en porcentaje (log):
+#   - Un RMSE_log ≈ 0.165 corresponde a un error multiplicativo típico de e^{0.165} - 1 ≈ 18%.
+#   - Es una aproximación útil para comunicar magnitud del error en términos relativos.
+
+# VARIABLE QUE MÁS CONTRIBUYE A EXPLICAR EL PRECIO
+# - Para medir “importancia” dentro del modelo OLS en log, usamos |t-stat| de los coeficientes.
+# - La variable con mayor |t| es TotalSF (|t| = 23.6, p-value ~ 0), por lo que es el predictor más fuerte.
+# - Interpretación del coeficiente de TotalSF (0.000225) en un modelo log:
+#   - +100 sqft implica Δlog(precio) ≈ 0.000225 * 100 = 0.0225
+#   - Esto equivale a multiplicar el precio por exp(0.0225) ≈ 1.023 → ~ +2.3% por 100 sqft (ceteris paribus).
+# - Otros predictores con efectos importantes (por |t| y por interpretación económica):
+#   - GarageCars (0.078): +1 plaza ≈ +7.8% (aprox).
+#   - Fireplaces (0.0729): +1 chimenea ≈ +7.6% (aprox).
+#   - TotalBath (0.0421): +1 baño total ≈ +4.3% (aprox).
+#   - HouseAge (-0.00223): +10 años ≈ -2.2% (aprox).
+#   - YearsSinceRemod (-0.00356): +10 años desde reforma ≈ -3.5% (aprox).
+
+# CARACTERÍSTICAS DE LAS CASAS MÁS BARATAS VS MÁS CARAS (perfil por percentiles)
+# - Comparando medianas del 10% más barato vs 10% más caro, se observa un patrón coherente:
+#   - Casas caras (expensive_10pct) tienden a tener:
+#     - Mayor TotalSF (más superficie construida)
+#     - Más plazas de garaje (GarageCars ≈ 3 vs 1)
+#     - Más baños (TotalBath ≈ 3 vs 1)
+#     - Más chimeneas (Fireplaces ≈ 1 vs 0)
+#     - Más porches/superficie exterior (TotalPorchSF mayor)
+#     - Más fachada/parcela (LotFrontage y LotArea mayores)
+#     - Más “calidad/amenities” (p.ej. MasVnrArea ≈ 300 vs 0)
+#     - Reformas más recientes (YearsSinceRemod menor)
+#   - Casas baratas (cheap_10pct) tienden a ser:
+#     - Más pequeñas (TotalSF menor)
+#     - Con menos amenities (0 chimeneas, 1 plaza de garaje, 1 baño total)
+#     - Con menos elementos de “calidad” (MasVnrArea ~ 0)
+#     - Menos actualizadas (más años desde la reforma)
+
+# CONCLUSIÓN FINAL (storytelling de selección de modelo)
+# - El modelo seleccionado es OLS_postLASSO por:
+#   - Buen equilibrio entre simplicidad e interpretación
+#   - Rendimiento competitivo y estable (RMSE out-of-sample bajo y cercano al in-sample)
+#   - Signos y magnitudes de coeficientes coherentes con intuición de mercado inmobiliario
+# - En términos prácticos, el precio se explica principalmente por:
+#   - Tamaño total (TotalSF) + amenities (garaje, baños, chimenea) + estado/recencia de reformas.## ----------------------------------------------------------------------------------------------------------
+
+
+# R² y R² ajustado del modelo final
+s <- summary(ols_final_log)
+
+r2 <- s$r.squared
+r2_adj <- s$adj.r.squared
+
+c(r2 = r2, r2_adj = r2_adj)
+
+
+
+# -------------------------------
+# GOODNESS OF FIT: baseline vs modelo (mismo split)
+# -------------------------------
+
+rmse <- function(a, b) sqrt(mean((a - b)^2))
+
+# Requiere que existan: tr, va (con y = log(SalePrice)) y rmse_oos_log, rmse_oos_eur
+stopifnot(exists("tr"), exists("va"), "y" %in% names(tr), "y" %in% names(va))
+stopifnot(exists("rmse_oos_log"), exists("rmse_oos_eur"))
+
+# Baseline: predecir constante = mediana del log-precio en train
+baseline_log <- stats::median(tr$y, na.rm = TRUE)
+pred_base_log <- rep(baseline_log, nrow(va))
+
+rmse_base_log <- rmse(va$y, pred_base_log)
+rmse_base_eur <- rmse(exp(va$y), exp(pred_base_log))
+
+# Tabla comparativa
+compare_rmse <- tibble::tibble(
+  model = c("Baseline_median", "OLS_postLASSO"),
+  RMSE_log = c(rmse_base_log, rmse_oos_log),
+  RMSE_eur = c(rmse_base_eur, rmse_oos_eur)
+) |>
+  dplyr::mutate(
+    improve_log_pct = (RMSE_log[1] - RMSE_log) / RMSE_log[1],
+    improve_eur_pct = (RMSE_eur[1] - RMSE_eur) / RMSE_eur[1]
+  )
+
+compare_rmse
+
+
+# -------------------------------
+# Interpretación (Goodness of fit)
+# -------------------------------
+# - Nuestro modelo OLS_postLASSO mejora claramente al baseline naive (predecir la mediana):
+#   RMSE_log pasa de ~0.41 (baseline) a ~0.165 (modelo), es decir ~60% menos error.
+#   En euros, el RMSE baja de ~83k a ~29.2k (~65% menos).
+# - Además, la diferencia entre RMSE in-sample (~0.156) y out-of-sample (~0.165) es pequeña,
+#   lo que sugiere que el modelo generaliza razonablemente (no hay sobreajuste fuerte).
+# - Por tanto, el modelo aporta poder predictivo real frente a una referencia simple y
+#   cumple el requisito de evaluar ajuste y capacidad predictiva con un split de validación.
