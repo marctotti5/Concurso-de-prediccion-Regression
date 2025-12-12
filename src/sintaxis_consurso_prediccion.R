@@ -1529,212 +1529,158 @@ rotated_solutions
 ## -------------------------------------------------- MODELADO ----------------------------------------------
 ## ----------------------------------------------------------------------------------------------------------
 
-## TODO: Modelo lasso para ver variables que se pueden descartar
 
-# LASSO: librerías
-pacman::p_load(glmnet)
+pacman::p_load(dplyr, tibble, glmnet, MASS, car, readr)
 
-# LASSO: preparar matriz de diseño
+# 0) Target: trabajamos con log(SalePrice)
+target_used <- "log_SalePrice"
+if (!target_used %in% names(data_pisos_train_clean)) {
+  data_pisos_train_clean <- data_pisos_train_clean |>
+    dplyr::mutate(log_SalePrice = log(SalePrice))
+}
+
+rmse <- function(a, b) sqrt(mean((a - b)^2))
+
+# 1) LASSO (solo para descartar variables)
 model_df <- data_pisos_train_clean |>
-  mutate(
-    y = if (exists("target_var")) .data[[target_var]] else log_SalePrice
-  ) |>
-  select(-SalePrice, -log_SalePrice)
+  dplyr::mutate(y = log(SalePrice)) |>
+  dplyr::select(-SalePrice, -log_SalePrice, -bc_SalePrice)
 
-X <- model.matrix(y ~ . - 1, data = model_df |> select(-Id))
+X <- model.matrix(y ~ . - 1, data = model_df |> dplyr::select(-Id))
 y <- model_df$y
 
-# LASSO: validación cruzada para elegir lambda y ver nº de variables
 set.seed(123)
 cv_lasso <- cv.glmnet(
-  x = X,
-  y = y,
-  alpha = 1,
-  family = "gaussian",
-  nfolds = 10,
-  standardize = TRUE
-)
-
-lasso_fit_min <- glmnet(
-  x = X, y = y, alpha = 1, family = "gaussian",
-  lambda = cv_lasso$lambda.min, standardize = TRUE
+  x = X, y = y,
+  alpha = 1, family = "gaussian",
+  nfolds = 10, standardize = TRUE
 )
 
 lasso_fit_1se <- glmnet(
-  x = X, y = y, alpha = 1, family = "gaussian",
+  x = X, y = y,
+  alpha = 1, family = "gaussian",
   lambda = cv_lasso$lambda.1se, standardize = TRUE
 )
 
-n_nonzero_min <- sum(coef(lasso_fit_min) != 0) - 1
-n_nonzero_1se <- sum(coef(lasso_fit_1se) != 0) - 1
-
-# LASSO: variables seleccionadas (coeficientes distintos de 0)
-coef_min <- coef(lasso_fit_min)
-selected_min <- tibble(
-  feature = rownames(coef_min),
-  coef = as.numeric(coef_min)
-) |>
-  filter(feature != "(Intercept)", coef != 0) |>
-  arrange(desc(abs(coef)))
-
 coef_1se <- coef(lasso_fit_1se)
-selected_1se <- tibble(
+selected_1se <- tibble::tibble(
   feature = rownames(coef_1se),
   coef = as.numeric(coef_1se)
 ) |>
-  filter(feature != "(Intercept)", coef != 0) |>
-  arrange(desc(abs(coef)))
+  dplyr::filter(feature != "(Intercept)", coef != 0)
 
-# LASSO: convertir selección a variables originales para poder descartar en tu data.frame
-feature_map <- tibble(feature = colnames(X)) |>
-  mutate(variable_original = sub(":.*$", "", feature))
+feature_map <- tibble::tibble(feature = colnames(X)) |>
+  dplyr::mutate(variable_original = sub(":.*$", "", feature))
 
 vars_keep_1se <- feature_map |>
-  filter(feature %in% selected_1se$feature) |>
-  distinct(variable_original) |>
-  pull(variable_original)
+  dplyr::filter(feature %in% selected_1se$feature) |>
+  dplyr::distinct(variable_original) |>
+  dplyr::pull(variable_original)
 
-vars_drop_1se <- setdiff(
-  names(data_pisos_train_clean),
-  c("Id", "SalePrice", "log_SalePrice", vars_keep_1se)
-)
-
-# LASSO: objetos útiles para inspección rápida
 lasso_results <- list(
-  target = if (exists("target_var")) target_var else "log_SalePrice",
-  cv = cv_lasso,
-  lambda = list(min = cv_lasso$lambda.min, x1se = cv_lasso$lambda.1se),
-  n_nonzero = list(min = n_nonzero_min, x1se = n_nonzero_1se),
-  selected = list(min = selected_min, x1se = selected_1se),
-  vars_keep_x1se = vars_keep_1se,
-  vars_drop_x1se = vars_drop_1se
+  target = target_used,
+  lambda_1se = cv_lasso$lambda.1se,
+  n_keep = length(vars_keep_1se),
+  vars_keep = vars_keep_1se
 )
 
-lasso_results
+# 2) Dataset post-LASSO (para comparar modelos)
+train_reduced <- data_pisos_train_clean |>
+  dplyr::select(dplyr::any_of(c("Id", "SalePrice", "log_SalePrice", vars_keep_1se))) |>
+  dplyr::mutate(y = log_SalePrice)
 
-length(vars_keep_1se)  # Variables a mantener
-length(vars_drop_1se)  # Variables a descartar
-
-
-# LASSO: evaluación holdout (RMSE) para elegir entre lambda.min y lambda.1se
+# Split fijo para comparación 
 set.seed(123)
-idx_train <- sample(seq_len(nrow(model_df)), size = floor(0.8 * nrow(model_df)))
-X_tr <- X[idx_train, , drop = FALSE]
-y_tr <- y[idx_train]
-X_va <- X[-idx_train, , drop = FALSE]
-y_va <- y[-idx_train]
+idx_tr <- sample(seq_len(nrow(train_reduced)), size = floor(0.8 * nrow(train_reduced)))
+train_tr <- train_reduced[idx_tr, ]
+train_va <- train_reduced[-idx_tr, ]
 
-fit_min <- glmnet(x = X_tr, y = y_tr, alpha = 1, family = "gaussian", lambda = cv_lasso$lambda.min, standardize = TRUE)
-fit_1se <- glmnet(x = X_tr, y = y_tr, alpha = 1, family = "gaussian", lambda = cv_lasso$lambda.1se, standardize = TRUE)
+train_tr2 <- train_tr |> dplyr::mutate(Id = as.character(Id)) |> dplyr::select(-Id)
+train_va2 <- train_va |> dplyr::mutate(Id = as.character(Id)) |> dplyr::select(-Id)
 
-pred_min <- as.numeric(predict(fit_min, newx = X_va))
-pred_1se <- as.numeric(predict(fit_1se, newx = X_va))
+# 3) OLS base (post-LASSO) + diagnósticos básicos
+ols_base <- lm(y ~ . - SalePrice - log_SalePrice, data = train_tr2)
+pred_ols <- predict(ols_base, newdata = train_va2)
+rmse_ols <- rmse(train_va$y, pred_ols)
 
-rmse <- function(a, b) sqrt(mean((a - b)^2))
-rmse_min <- rmse(y_va, pred_min)
-rmse_1se <- rmse(y_va, pred_1se)
+vif_vals <- car::vif(ols_base)
+cond_num <- kappa(scale(model.matrix(ols_base)[, -1, drop = FALSE]))
 
-rmse_results <- tibble(model = c("lambda.min", "lambda.1se"), rmse = c(rmse_min, rmse_1se)) |>
-  arrange(rmse)
-
-rmse_results
-
-# LASSO: entrenar modelo final con el lambda elegido
-lambda_final <- if (rmse_1se <= rmse_min) cv_lasso$lambda.1se else cv_lasso$lambda.min
-
-lasso_final <- glmnet(
-  x = X,
-  y = y,
-  alpha = 1,
-  family = "gaussian",
-  lambda = lambda_final,
-  standardize = TRUE
+diag_summary <- list(
+  rmse_ols = rmse_ols,
+  vif_top = sort(vif_vals, decreasing = TRUE) |> head(10),
+  condition_number = cond_num
 )
 
-lasso_final
+# 4) Stepwise AIC (post-LASSO) y RMSE en validación
+ols_aic <- MASS::stepAIC(ols_base, direction = "both", trace = FALSE)
+pred_aic <- predict(ols_aic, newdata = train_va2)
+rmse_aic <- rmse(train_va$y, pred_aic)
 
-# LASSO: predicción en test y creación de submission (deshaciendo log si aplica)
-test_df <- data_pisos_test_imputed |>
-  select(names(model_df) |> setdiff("y"))
+# 5) Stepwise BIC (post-LASSO) y RMSE en validación
+ols_bic <- step(ols_base, direction = "both", k = log(nrow(train_tr2)), trace = 0)
+pred_bic <- predict(ols_bic, newdata = train_va2)
+rmse_bic <- rmse(train_va$y, pred_bic)
 
-X_test <- model.matrix(~ . - 1, data = test_df |> select(-Id))
-pred_test <- as.numeric(predict(lasso_final, newx = X_test))
-
-SalePrice_pred <- if (exists("target_var") && target_var == "SalePrice") pred_test else exp(pred_test)
-
-submission <- tibble(
-  Id = data_pisos_test_imputed$Id,
-  SalePrice = SalePrice_pred
-)
-
-submission # Del lasso
-
-# Con este holdout gana lambda.min. (RMSE 0.124 vs 0.128)
-# Ahora el siguiente paso útil es mejorar generalización con Elastic Net
-# (mezcla ridge+lasso) y quedarte con el mejor por RMSE.
-
-# Elastic Net: grid simple de alpha y comparación por RMSE
-alphas <- c(0.1, 0.3, 0.5, 0.7, 0.9, 1)
-
-enet_grid <- purrr::map_dfr(alphas, function(a) {
-  set.seed(123)
-  cv <- cv.glmnet(
-    x = X_tr,
-    y = y_tr,
-    alpha = a,
-    family = "gaussian",
-    nfolds = 10,
-    standardize = TRUE
-  )
-  fit <- glmnet(
-    x = X_tr, y = y_tr,
-    alpha = a, family = "gaussian",
-    lambda = cv$lambda.min,
-    standardize = TRUE
-  )
-  pred <- as.numeric(predict(fit, newx = X_va))
-  tibble(alpha = a, lambda_min = cv$lambda.min, rmse = rmse(y_va, pred))
-}) |>
-  arrange(rmse)
-
-enet_grid
-
-
-# Todas las alphas dan RMSE ~ 0.124-0.125:
-# modelo está en una zona “plana” (cualquier mezcla ridge/lasso rinde igual en ese holdout)
-# o
-# el holdout único no discrimina bien (por eso conviene repetir seeds o usar CV anidada si quieres comparar finamente).
-
-# Elastic Net: entrenar final con el mejor alpha y crear submission
-best_alpha <- enet_grid$alpha[1]
+# 6) Ridge (post-LASSO) y RMSE comparable
+x_tr <- model.matrix(y ~ . - 1 - Id - SalePrice - log_SalePrice, data = train_tr)
+x_va <- model.matrix(y ~ . - 1 - Id - SalePrice - log_SalePrice, data = train_va)
 
 set.seed(123)
-cv_final <- cv.glmnet(
-  x = X,
-  y = y,
-  alpha = best_alpha,
-  family = "gaussian",
-  nfolds = 10,
-  standardize = TRUE
+cv_ridge <- cv.glmnet(
+  x = x_tr, y = train_tr$y,
+  alpha = 0, family = "gaussian",
+  nfolds = 10, standardize = TRUE
 )
 
-enet_final <- glmnet(
-  x = X,
-  y = y,
-  alpha = best_alpha,
-  family = "gaussian",
-  lambda = cv_final$lambda.min,
-  standardize = TRUE
+ridge_fit <- glmnet(
+  x = x_tr, y = train_tr$y,
+  alpha = 0, family = "gaussian",
+  lambda = cv_ridge$lambda.min, standardize = TRUE
 )
 
-pred_test <- as.numeric(predict(enet_final, newx = X_test))
-SalePrice_pred <- if (exists("target_var") && target_var == "SalePrice") pred_test else exp(pred_test)
+pred_ridge <- as.numeric(predict(ridge_fit, newx = x_va))
+rmse_ridge <- rmse(train_va$y, pred_ridge)
 
-submission <- tibble(
-  Id = data_pisos_test_imputed$Id,
-  SalePrice = SalePrice_pred
+# 7) Tabla de comparación (storytelling)
+results_compare <- tibble::tibble(
+  model = c("OLS_postLASSO", "OLS_stepAIC", "OLS_stepBIC", "Ridge_CV"),
+  rmse = c(rmse_ols, rmse_aic, rmse_bic, rmse_ridge)
+) |>
+  dplyr::arrange(rmse)
+
+# Decisión automática: eligir el menor RMSE; si empatan, prioriza OLS_base por simplicidad
+best_model_name <- results_compare$model[1]
+ols_selected <- dplyr::case_when(
+  best_model_name == "OLS_stepAIC" ~ "AIC",
+  best_model_name == "OLS_stepBIC" ~ "BIC",
+  TRUE ~ "BASE"
 )
 
-submission # Del elastic net
+# 8) MODELO FINAL (entrenar en TODO TRAIN limpio, post-LASSO) + predicción TEST + export
 
+# 0) Limpiar lista de variables seleccionadas (evitar target/leakage)
+vars_keep_final <- setdiff(vars_keep_1se, c("SalePrice", "log_SalePrice", "bc_SalePrice"))
 
+# 1) TRAIN final (log) con predictores limpios
+train_final_model_log <- data_pisos_train_clean |>
+  dplyr::select(dplyr::any_of(vars_keep_final), SalePrice) |>
+  dplyr::mutate(y = log(SalePrice)) |>
+  dplyr::select(-SalePrice)
+
+ols_final_log <- lm(y ~ ., data = train_final_model_log)
+
+names(model.frame(ols_final_log))
+
+# 2) TEST con los mismos predictores
+test_reduced_log <- data_pisos_test_imputed |>
+  dplyr::select(dplyr::any_of(vars_keep_final))
+
+pred_log_test <- as.numeric(predict(ols_final_log, newdata = test_reduced_log))
+
+export_test <- tibble::tibble(
+  `Predicted.price` = exp(pred_log_test)
+)
+
+# readr::write_csv(export_test, "results/predicted_price_test.csv")
+# export_test
