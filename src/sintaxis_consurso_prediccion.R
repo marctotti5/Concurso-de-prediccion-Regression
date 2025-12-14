@@ -2088,3 +2088,162 @@ print(results_summary)
 
 
 
+
+# -----------------------------------------------------------------------------
+# MODELOS 7 y 8: SELECCIÓN DE VARIABLES (BACKWARD & FORWARD)
+# -----------------------------------------------------------------------------
+library(MASS)
+library(dplyr)
+
+print("--- Iniciando modelos Stepwise (Backward/Forward) ---")
+
+# 1. FUNCIÓN AUXILIAR: CORRECCIÓN DE NIVELES (Anti-crash)
+# -----------------------------------------------------------------------------
+# Esta función asegura que los factores en validación coincidan exactamente 
+# con lo que el modelo aprendió, evitando errores tipo "factor has new levels".
+force_levels <- function(model, val_data, train_data_ref) {
+  model_levels <- model$xlevels
+  for (col_name in names(model_levels)) {
+    if (col_name %in% names(val_data)) {
+      # Forzar niveles del modelo
+      val_data[[col_name]] <- factor(val_data[[col_name]], levels = model_levels[[col_name]])
+      # Detectar NAs generados (nuevos niveles)
+      nas_generated <- which(is.na(val_data[[col_name]]))
+      if (length(nas_generated) > 0) {
+        # Imputar con la moda del train original
+        mode_val <- names(sort(table(train_data_ref[[col_name]]), decreasing = TRUE))[1]
+        val_data[[col_name]][nas_generated] <- mode_val
+      }
+    }
+  }
+  return(val_data)
+}
+
+# 2. PREPARACIÓN DE DATOS (Sin Data Leakage)
+# -----------------------------------------------------------------------------
+# Eliminamos 'SalePrice' (precio original) y 'Id'. Solo dejamos 'log_SalePrice'.
+vars_to_remove <- c("Id", "SalePrice")
+
+data_train_lm <- data_pisos_train_clean[train_index, ] %>% 
+  dplyr::select(-any_of(vars_to_remove))
+
+data_val_lm <- data_pisos_train_clean[-train_index, ] %>% 
+  dplyr::select(-any_of(vars_to_remove))
+
+# Modelos base para el algoritmo stepAIC
+null_model <- lm(as.formula(paste(target_var, "~ 1")), data = data_train_lm)
+full_model <- lm(as.formula(paste(target_var, "~ .")), data = data_train_lm)
+
+# 3. BACKWARD SELECTION
+# -----------------------------------------------------------------------------
+print("Ejecutando BACKWARD selection (comienza con todas, va quitando)...")
+# trace = FALSE para no saturar la consola
+model_backward <- stepAIC(full_model, direction = "backward", trace = FALSE)
+
+# Corregimos niveles y predecimos
+val_ready_back <- force_levels(model_backward, data_val_lm, data_train_lm)
+preds_back <- predict(model_backward, newdata = val_ready_back)
+rmse_back <- sqrt(mean((preds_back - data_val_lm[[target_var]])^2))
+
+print(paste("RMSE Backward:", round(rmse_back, 4)))
+
+# 4. FORWARD SELECTION
+# -----------------------------------------------------------------------------
+print("Ejecutando FORWARD selection (comienza vacía, va añadiendo)...")
+model_forward <- stepAIC(null_model, direction = "forward", 
+                         scope = list(lower = null_model, upper = full_model), 
+                         trace = FALSE)
+
+# Corregimos niveles y predecimos
+val_ready_fwd <- force_levels(model_forward, data_val_lm, data_train_lm)
+preds_fwd <- predict(model_forward, newdata = val_ready_fwd)
+rmse_fwd <- sqrt(mean((preds_fwd - data_val_lm[[target_var]])^2))
+
+print(paste("RMSE Forward:", round(rmse_fwd, 4)))
+
+# -----------------------------------------------------------------------------
+# INTERPRETACIÓN RESULTADOS LM STEPWISE (Backward/Forward)
+# -----------------------------------------------------------------------------
+# 1. Rendimiento (RMSE): 0.1139 (Ambos)
+#    - Tanto el método Backward como el Forward convergieron al mismo resultado.
+#    - Su rendimiento es inferior al de ElasticNet (0.1084) y al GAM (0.1077).
+#
+# 2. Comparación con Regularización (Lasso/Ridge):
+#    - Los métodos Stepwise (selección paso a paso) tienden a ser "codiciosos"
+#      (greedy): toman decisiones locales de incluir/excluir variables que no
+#      siempre llevan al óptimo global.
+#    - ElasticNet funcionó mejor porque, en lugar de eliminar variables de golpe
+#      (hard thresholding), reduce suavemente sus coeficientes, gestionando mejor
+#      la multicolinealidad entre variables parecidas.
+#
+# 3. Conclusión:
+#    - Aunque son modelos interpretables y cumplen el requisito del benchmark ,
+#      no son los ganadores para la predicción final. El GAM sigue siendo el líder
+#      por capturar la no-linealidad.
+
+
+# -----------------------------------------------------------------------------
+# TABLA FINAL DE BENCHMARK
+# -----------------------------------------------------------------------------
+
+# Recopilamos los RMSE de validación de todos los modelos entrenados
+results_complete <- data.frame(
+  Modelo = c("GAM (Splines)", "ElasticNet", "Lasso", "Ridge", 
+             "LM Backward", "LM Forward", 
+             "PCR", "KNN"),
+  RMSE = c(rmse_gam, best_enet_rmse, rmse_lasso, rmse_ridge, 
+           rmse_back, rmse_fwd, 
+           best_pcr_rmse, rmse_knn)
+) %>%
+  arrange(RMSE) # Ordenamos del mejor (menor error) al peor
+
+print("--- CLASIFICACIÓN FINAL DEL CONCURSO ---")
+print(results_complete)
+
+# Identificamos el ganador para automatizar la decisión
+ganador <- results_complete$Modelo[1]
+rmse_ganador <- results_complete$RMSE[1]
+
+print(paste("🏆 EL MODELO GANADOR ES:", ganador, "con un RMSE de", round(rmse_ganador, 5)))
+
+
+# =============================================================================
+# INTERPRETACIÓN FINAL DEL BENCHMARK
+# =============================================================================
+#
+# 1. EL GANADOR: GAM (Generalized Additive Model)
+# -----------------------------------------------------------------------------
+# - RMSE: 0.1077 (El más bajo de todos).
+# - Motivo: El mercado inmobiliario no es estrictamente lineal. 
+#   Por ejemplo, añadir 50m² a una casa pequeña aumenta mucho su valor, pero 
+#   añadirlos a una mansión enorme aporta menos (rendimientos decrecientes).
+#   El GAM, mediante los splines cúbicos (s(TotalSF), s(YearsSinceRemod)), ha
+#   logrado capturar estas curvas suaves que los modelos lineales ignoran.
+#
+# 2. EL PODIO: ElasticNet y Lasso (Regularización)
+# -----------------------------------------------------------------------------
+# - RMSE: ~0.1084 - 0.1090
+# - Han quedado muy cerca del GAM. Esto indica que la relación lineal es fuerte,
+#   pero la regularización fue clave.
+# - ElasticNet superó a Lasso/Ridge por ser un híbrido: eliminó ruido (como Lasso)
+#   pero mantuvo grupos de variables correlacionadas (como Ridge).
+#
+# 3. ZONA MEDIA: Stepwise (Backward/Forward)
+# -----------------------------------------------------------------------------
+# - RMSE: ~0.1139
+# - Funcionan peor que la regularización. Al ser métodos "codiciosos" (greedy),
+#   tienden a sobreajustar o eliminar variables útiles demasiado pronto.
+#   Demuestra que técnicas modernas (ElasticNet) suelen batir a las clásicas.
+#
+# 4. LOS PERDEDORES: PCR y KNN
+# -----------------------------------------------------------------------------
+# - PCR (0.1234): Falló porque los Componentes Principales se calculan sin mirar
+#   el precio. Resume la varianza geométrica de la casa, pero pierde matices
+#   necesarios para la tasación.
+# - KNN (0.1740): Sufrió la "maldición de la dimensionalidad". Con >80 variables,
+#   la distancia entre vecinos se diluye y el ruido ahoga la señal.
+#
+# CONCLUSIÓN DEFINITIVA:
+# Seleccionamos el modelo GAM para generar las predicciones finales del Test Set,
+# ya que es el que minimiza el RMSE en validación.
+# =============================================================================
