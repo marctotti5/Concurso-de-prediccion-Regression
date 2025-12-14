@@ -2398,3 +2398,110 @@ print(final_metrics_df)
 # - Es interpretable (podemos ver las curvas de depreciación).
 # - Es robusto (validado en split 80/20 con métricas consistentes).
 # =============================================================================
+
+
+
+# =============================================================================
+# SECCIÓN EXTRA: ESTRATEGIA KAGGLE -------
+# =============================================================================
+library(e1071) 
+library(dplyr)
+library(caret)
+library(glmnet)
+library(mgcv)
+
+# 1. CREACIÓN DEL DATASET OPTIMIZADO
+# -----------------------------------------------------------------------------
+data_opt <- data_pisos_train_clean
+
+# A. ELIMINACIÓN DE OUTLIERS (GrLivArea > 4000)
+if("GrLivArea" %in% names(data_opt)) {
+  orig_rows <- nrow(data_opt)
+  # Filtramos outliers
+  data_opt <- data_opt %>% filter(!(GrLivArea > 4000 & log_SalePrice < 12.5))
+  print(paste("Outliers eliminados:", orig_rows - nrow(data_opt)))
+}
+
+# B. CODIFICACIÓN ORDINAL (Calidad como números)
+qual_cols <- c("ExterQual", "ExterCond", "BsmtQual", "BsmtCond", 
+               "HeatingQC", "KitchenQual", "FireplaceQu", "GarageQual", "GarageCond")
+qual_levels <- c("Po", "Fa", "TA", "Gd", "Ex") 
+
+for(col in qual_cols) {
+  if(col %in% names(data_opt)) {
+    # Convertimos a número respetando el orden
+    data_opt[[col]] <- as.numeric(factor(data_opt[[col]], levels = qual_levels, ordered = TRUE))
+    data_opt[[col]][is.na(data_opt[[col]])] <- 0
+  }
+}
+
+# C. TRANSFORMACIÓN LOGARÍTMICA (SKEWNESS)
+num_cols <- sapply(data_opt, is.numeric)
+cols_to_check <- setdiff(names(data_opt)[num_cols], c("log_SalePrice", "Id", "SalePrice"))
+
+skewed_feats <- sapply(data_opt[, cols_to_check], skewness, na.rm = TRUE)
+high_skew <- names(skewed_feats[skewed_feats > 0.75])
+
+print(paste("Transformando", length(high_skew), "variables sesgadas con Log(x+1)..."))
+for(col in high_skew) {
+  data_opt[[col]] <- log1p(data_opt[[col]])
+}
+
+# 2. PREPARACIÓN DE MATRICES
+# -----------------------------------------------------------------------------
+set.seed(123)
+idx_opt <- createDataPartition(data_opt$log_SalePrice, p = 0.8, list = FALSE)
+
+train_opt <- data_opt[idx_opt, ]
+val_opt   <- data_opt[-idx_opt, ]
+
+# Usamos dplyr::select explícitamente para evitar el error
+X_tr_opt <- model.matrix(log_SalePrice ~ ., data = train_opt %>% dplyr::select(-Id))[, -1]
+y_tr_opt <- train_opt$log_SalePrice
+
+X_va_opt <- model.matrix(log_SalePrice ~ ., data = val_opt %>% dplyr::select(-Id))[, -1]
+
+# 3. RE-ENTRENAMIENTO (ElasticNet y GAM)
+# -----------------------------------------------------------------------------
+
+# Re-entrenando ElasticNet Optimizado
+set.seed(123)
+enet_opt <- cv.glmnet(X_tr_opt, y_tr_opt, alpha = 0.4, standardize = TRUE)
+# Convertimos explícitamente a vector numérico
+preds_enet_opt <- as.numeric(predict(enet_opt, newx = X_va_opt, s = "lambda.1se"))
+
+# Re-entrenando GAM Optimizado
+gam_opt <- gam(gam_formula, data = train_opt, method = "REML")
+# Convertimos explícitamente a vector numérico
+preds_gam_opt <- as.numeric(predict(gam_opt, newdata = val_opt))
+
+# 4. ENSEMBLING (LA MEDIA)
+# -----------------------------------------------------------------------------
+preds_ensemble <- (preds_enet_opt + preds_gam_opt) / 2
+
+# 5. RESULTADOS
+# -----------------------------------------------------------------------------
+# Recalculamos RMSE asegurando que todo son números
+rmse_gam_orig <- rmse_gam # Mejor valor anterior (0.1077)
+
+rmse_enet_new <- sqrt(mean((preds_enet_opt - val_opt$log_SalePrice)^2))
+rmse_gam_new  <- sqrt(mean((preds_gam_opt - val_opt$log_SalePrice)^2))
+rmse_ens_new  <- sqrt(mean((preds_ensemble - val_opt$log_SalePrice)^2))
+
+mejora_df <- data.frame(
+  Escenario = c("Original (GAM)", "Nuevo: ElasticNet Opt", "Nuevo: GAM Opt", "Nuevo: ENSEMBLE"),
+  RMSE_Validation = c(rmse_gam_orig, rmse_enet_new, rmse_gam_new, rmse_ens_new)
+) %>%
+  arrange(RMSE_Validation)
+
+print("--- RESULTADOS TRAS OPTIMIZACIÓN AVANZADA ---")
+print(mejora_df)
+
+# Lógica de éxito
+best_val <- min(mejora_df$RMSE_Validation)
+if(best_val < rmse_gam_orig) {
+  print(paste("¡MEJORA CONFIRMADA! Nuevo RMSE:", round(best_val, 5)))
+  print(paste("Reducción de error:", round(rmse_gam_orig - best_val, 5)))
+} else {
+  print("El modelo original sigue ganando. Las mejoras no afectaron significativamente.")
+}
