@@ -68,6 +68,14 @@ data_pisos_test <- read.csv(
     conjunto = "test"
   )
 
+data_pisos_test11 <- read.csv(
+  "./data/test.csv",
+  encoding = "UTF-8",
+  colClasses = c("character", rep(NA, 80)),
+  stringsAsFactors = TRUE
+)
+
+
 ## 2.2. Combinar train y test
 # Reunimos ambos datasets para procesamiento conjunto
 data_pisos <- rbind(data_pisos_train, data_pisos_test)
@@ -213,17 +221,17 @@ new_vars <- c(
 )
 
 cor_new_vars <- data_pisos |>
-  select(all_of(new_vars), SalePrice) |>
-  select_if(is.numeric) %>%
+  dplyr::select(all_of(new_vars), SalePrice) |>  
+  dplyr::select_if(is.numeric) %>%              
   cor(use = "pairwise.complete.obs") |>
   as.data.frame() |>
-  select(SalePrice) |>
+  dplyr::select(SalePrice) |>
   arrange(desc(abs(SalePrice)))
 
 ## 5.2. Visualización de nuevas variables vs SalePrice
 
 plot_data <- data_pisos |>
-  select(TotalBath, TotalSF, HouseAge, SalePrice)
+  dplyr::select(TotalBath, TotalSF, HouseAge, SalePrice)
 
 # Gráfico 1: TotalSF vs SalePrice
 p1 <- ggplot(plot_data, aes(x = TotalSF, y = SalePrice)) +
@@ -267,7 +275,7 @@ grid.arrange(p1, p4, p2, p3, ncol = 2)
 
 ## Variables sin variabilidad -> no aportan nada al modelo -> eliminar
 data_for_nzv <- data_pisos |>
-  select(-Id, -SalePrice) |>
+  dplyr::select(-Id, -SalePrice) |>
   mutate(across(where(is.character), as.factor))
 
 # Detectar variables con near-zero variance
@@ -376,9 +384,9 @@ variables_eliminar_sinvariabilidad <- nzv_vars$variable
 
 ## 7.1. Crear dataset final eliminando variables sin variabilidad y redundantes
 data_pisos_final <- data_pisos |>
-  select(-all_of(variables_eliminar_sinvariabilidad)) %>%
+  dplyr::select(-all_of(variables_eliminar_sinvariabilidad)) %>%
   # Eliminar variables redundantes
-  select(
+  dplyr::select(
     -c(
       # Baños individuales (reemplazados por TotalBath)
       FullBath,
@@ -422,11 +430,11 @@ data_pisos_final <- data_pisos |>
 ## eliminamos la variable respuesta de test
 data_pisos_train <- data_pisos_final %>%
   filter(conjunto == "train") %>%
-  select(-conjunto)
+  dplyr::select(-conjunto)
 
 data_pisos_test <- data_pisos_final %>%
   filter(conjunto == "test") %>%
-  select(-conjunto, -SalePrice)
+  dplyr::select(-conjunto, -SalePrice)
 
 # -----------------------------------------------------------------
 # SECCIÓN 8: ANÁLISIS EXPLORATORIO (EDA) - VARIABLE RESPUESTA ------
@@ -485,11 +493,11 @@ grafico_exploratorio_respuesta <- grid.arrange(p1, p2, p3, p4, ncol = 2)
 ## 8.2. Correlaciones: variables numéricas con SalePrice
 
 correlations <- data_pisos_train |>
-  select(where(is.numeric), -Id) |>
+  dplyr::select(where(is.numeric), -Id) |>
   cor(use = "complete.obs") |>
   as.data.frame() |>
   rownames_to_column("variable") |>
-  select(variable, SalePrice) |>
+  dplyr::select(variable, SalePrice) |>
   filter(variable != "SalePrice") |>
   arrange(desc(abs(SalePrice))) |>
   mutate(abs_cor = abs(SalePrice))
@@ -606,7 +614,7 @@ quality_vars <- c(
 )
 
 quality_numeric <- data_pisos_train |>
-  select(all_of(quality_vars), SalePrice) |>
+  dplyr::select(all_of(quality_vars), SalePrice) |>
   mutate(across(
     all_of(quality_vars),
     ~ case_when(
@@ -770,9 +778,9 @@ ggplot(
 
 variables_categoricas_redundantes <- c("GarageCond", "ExterCond", "Exterior2nd")
 data_pisos_train <- data_pisos_train %>%
-  select(-all_of(variables_categoricas_redundantes))
+  dplyr::select(-all_of(variables_categoricas_redundantes))
 data_pisos_test <- data_pisos_test %>%
-  select(-all_of(variables_categoricas_redundantes))
+  dplyr::select(-all_of(variables_categoricas_redundantes))
 
 
 # -----------------------------------------------------------------
@@ -889,69 +897,78 @@ data_pisos_train |>
   theme(legend.position = "none")
 
 
-## ----------------------------------------------------------------------------------------------------------
-# SECCIÓN 12: IMPUTACION DE MISSINGS ------
-## ----------------------------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# SECCIÓN 12: IMPUTACIÓN ROBUSTA ------
+# -----------------------------------------------------------------------------
 
-# Step 1: Preparar datos combinados
-# Mantener SalePrice en train para que ayude a imputar, pero asegurar que en test sea NA
+# 1. LIMPIEZA PREVIA DE OUTLIERS (IMPORTANTE)
+# Quitamos las casas "trampa" del Train ANTES de juntar nada.
+# Si las dejamos, MICE podría aprender patrones erróneos de esas casas raras.
+# data_pisos_train_clean_rows <- data_pisos_train %>% 
+#  filter(!(GrLivArea > 4000 & SalePrice < 300000))
+
+# print(paste("Filas de train tras quitar outliers:", nrow(data_pisos_train_clean_rows)))
+
+# 2. PREPARAR DATOS COMBINADOS (Tu código)
+# -----------------------------------------------------------------------------
 data_full_imputation <- bind_rows(
   data_pisos_train %>% mutate(is_test = FALSE),
   data_pisos_test %>% mutate(SalePrice = NA, is_test = TRUE)
 )
 
-# Step 2: Configurar vector 'ignore'
-# TRUE = La fila NO se usa para entrenar el modelo (pero SÍ se imputa)
-# Usaremos solo las filas de train (is_test == FALSE) para aprender los patrones
+# Convertir caracteres a factores para que MICE funcione bien
+data_full_imputation <- data_full_imputation %>%
+  mutate_if(is.character, as.factor)
+
+# 3. CONFIGURAR VECTOR IGNORE
+# -----------------------------------------------------------------------------
+# TRUE = Fila de Test (se imputa, pero NO se usa para entrenar el modelo de imputación)
 ignore_vec <- data_full_imputation$is_test
 
-cat("\n=== Running unified imputation (Training on TRAIN rows only) ===\n")
-start_time <- Sys.time()
+cat("\n=== Ejecutando Imputación Unificada (Entrenando solo con TRAIN) ===\n")
 
-# Step 3: Imputar usando 'ignore'
-# Excluimos variables auxiliares como 'is_test' o IDs si los hubiera en la fórmula del mice,
-# pero mice por defecto usa todo. Aseguramos method='rf'.
+# 4. EJECUTAR MICE
+# -----------------------------------------------------------------------------
+# Excluimos 'is_test' y 'Id' de la matriz de predicción para no confundir
+# 'quickpred' ayuda a seleccionar solo variables correlacionadas si va lento
 impute_unified <- mice(
-  data_full_imputation %>% select(-is_test),
-  m = 1,
-  method = "rf",
-  ignore = ignore_vec,
-  maxit = 5,
+  data_full_imputation %>% dplyr::select(-is_test, -Id), 
+  m = 1, 
+  method = "rf",     # Random Forest es robusto para esto
+  ignore = ignore_vec, 
+  maxit = 5, 
   seed = 123,
   printFlag = TRUE
 )
 
-end_time <- Sys.time()
-cat(
-  "\nImputation time:",
-  round(difftime(end_time, start_time, units = "secs"), 1),
-  "secs\n"
-)
-
-# Step 4: Extraer datos completos y separar
+# 5. RECUPERAR DATOS SEPARADOS
+# -----------------------------------------------------------------------------
 data_full_completed <- complete(impute_unified, 1)
 
+# Añadimos de nuevo el ID que quitamos temporalmente en el mice
+data_full_completed$Id <- data_full_imputation$Id
 
-# Recuperar Train
+# Recuperar Train Imputado
 data_pisos_train_imputed <- data_full_completed %>%
-  slice(which(!ignore_vec)) %>%
+  filter(!ignore_vec) %>%
   as_tibble()
 
-# Recuperar Test (y quitar SalePrice que era NA/falso)
+# Recuperar Test Imputado (sin SalePrice)
 data_pisos_test_imputed <- data_full_completed %>%
-  slice(which(ignore_vec)) %>%
-  select(-SalePrice) %>%
+  filter(ignore_vec) %>%
+  dplyr::select(-SalePrice) %>%
   as_tibble()
 
-sum(is.na(data_pisos_train_imputed))
-sum(is.na(data_pisos_test_imputed))
+print("¡Imputación finalizada sin Data Leakage!")
+print(paste("NAs en Train:", sum(is.na(data_pisos_train_imputed))))
+print(paste("NAs en Test:", sum(is.na(data_pisos_test_imputed))))
 
 ## ----------------------------------------------------------------------------------------------------------
 # SECCIÓN 13: DIAGNÓSTICO DE INFLUENTIAL POINTS ------
 ## ----------------------------------------------------------------------------------------------------------
 
 # Ajustar modelo preliminar para diagnóstico (usando solo numéricas)
-numeric_data_diag <- data_pisos_train_imputed %>% select(where(is.numeric))
+numeric_data_diag <- data_pisos_train_imputed %>% dplyr::select(where(is.numeric))
 model_diag <- lm(SalePrice ~ ., data = numeric_data_diag)
 
 diagnostics <- data_pisos_train_imputed %>%
@@ -1001,10 +1018,11 @@ grid.arrange(p_diag, p_val, ncol = 2)
 # Nos centramos en los que son Influyentes (Cook alto) Y además tienen residuo alto.
 outliers_to_remove <- diagnostics %>% 
   filter(cooks_d > cooks_threshold & abs(std_resid) > 3) %>% 
-  select(Id, SalePrice, TotalSF, cooks_d, std_resid) %>% 
+  dplyr::select(Id, SalePrice, TotalSF, cooks_d, std_resid) %>% 
   arrange(desc(cooks_d))
 
 print(outliers_to_remove)
+
 
 ## ----------------------------------------------------------------------------------------------------------
 # SECCIÓN 14: VALIDATION: BASE R DIAGNOSTICS ------
@@ -1030,7 +1048,7 @@ ids_to_remove <- outliers_to_remove$Id
 # --- VERIFICACIÓN DE MAGNITUD (Para decidir si quitamos 17 o menos) ---
 print(
   outliers_to_remove %>% 
-    select(Id, SalePrice, TotalSF, cooks_d) %>%
+    dplyr::select(Id, SalePrice, TotalSF, cooks_d) %>%
     mutate(
       # Cuántas veces supera el umbral (Ratio de severidad)
       Severity = round(cooks_d / cooks_threshold, 1) 
@@ -1059,6 +1077,7 @@ if(length(ids_final_removal) > 0) {
 } else {
   data_pisos_train_clean <- data_pisos_train_imputed
 }
+
 
 ## ----------------------------------------------------------------------------------------------------------
 # SECCIÓN 15: NORMALITY ANALYSIS (TARGET VARIABLE) ------
@@ -1095,8 +1114,8 @@ if(abs(skew_val) > 0.75) {
 
 # Preparación de variables (Factores con >1 nivel)
 data_cat_clean <- data_pisos_train_clean %>%
-  select(where(is.factor)) %>%
-  select(-any_of("Id")) %>%
+  dplyr::select(where(is.factor)) %>%
+  dplyr::select(-any_of("Id")) %>%
   mutate(across(everything(), droplevels))
 
 cat_vars <- names(data_cat_clean)
@@ -1123,7 +1142,7 @@ redundant_idx <- which(cramer_matrix > 0.8 & cramer_matrix < 1, arr.ind = TRUE)
   print(redundant_df)
 
 # We eliminate the variable MSSubClass (as for a complicated definition, see dictionary, and redundancy)
-data_pisos_train_clean <- data_pisos_train_clean %>% select(-MSSubClass)
+data_pisos_train_clean <- data_pisos_train_clean %>% dplyr::select(-MSSubClass)
 
 ## ----------------------------------------------------------------------------------------------------------
 # SECCION 17: RELEVANCIA CATEGÓRICAS (Kruskal-Wallis) ----------------------------------
@@ -1132,7 +1151,7 @@ data_pisos_train_clean <- data_pisos_train_clean %>% select(-MSSubClass)
 target_col <- "log_SalePrice"
 
 # Aseguramos que usamos las variables del dataset limpio
-current_cat_vars <- names(select(data_pisos_train_clean, where(is.factor)))
+current_cat_vars <- names(dplyr::select(data_pisos_train_clean, where(is.factor)))
 current_cat_vars <- setdiff(current_cat_vars, "Id") # Excluir ID
 
 # 2. Ejecutar Test de Kruskal-Wallis
@@ -1168,7 +1187,7 @@ print(vars_irrelevant)
 
 # Correlation matrix con SalePrice al final
 numeric_vars <- data_pisos_train_clean %>%
-  select(where(is.numeric), -Id, -log_SalePrice) %>%
+  dplyr::select(where(is.numeric), -Id, -log_SalePrice) %>%
   relocate(SalePrice, .after = last_col())
 
 cor_matrix <- cor(numeric_vars, use = "pairwise.complete.obs")
@@ -1194,8 +1213,10 @@ correlation_plot
 
 # Seleccionar solo numéricas y ESCALAR (fundamental para kappa)
 X_matrix <- data_pisos_train_clean %>%
-  select(where(is.numeric), -Id, -contains("SalePrice")) %>% 
-  scale()
+  dplyr::select(where(is.numeric)) %>%              # Solo numéricas
+  dplyr::select(-any_of("Id")) %>%                  # Quitar Id si existe
+  dplyr::select(-contains("SalePrice")) %>%         # Quitar Target
+  scale()                                           # <--- FALTABA ESTO (Escalar)
 
 # Calcular numero de condicion
 cond_val <- kappa(na.omit(X_matrix))
@@ -1214,7 +1235,7 @@ cond_val
 # ------
 # Volvemos a probar el condition number de kappa tras eliminar estas variables
 X_matrix <- data_pisos_train_clean %>%
-  select(where(is.numeric), -Id, -contains("SalePrice")) %>% 
+  dplyr::select(where(is.numeric), -Id, -contains("SalePrice")) %>% 
   scale()
 
 # Calcular numero de condicion
@@ -1232,7 +1253,7 @@ cond_val
 # 1. Ajustamos un modelo auxiliar con todas las numericas
 model_vif <- lm(
   log_SalePrice ~ ., 
-  data = data_pisos_train_clean %>% select(where(is.numeric), -Id, -SalePrice)
+  data = data_pisos_train_clean %>% dplyr::select(where(is.numeric), -Id, -SalePrice)
 )
 
 # 2. Calculamos los valores VIF
@@ -1283,11 +1304,11 @@ print(tail(round(eigen_val, 5), 5))
 # Seleccionamos solo las predictoras numéricas (excluimos el target SalePrice)
 # El PCA es muy sensible a escalas, por lo que el escalado es OBLIGATORIO (scale.unit = TRUE)
 X_pca <- data_pisos_train_imputed %>%
-  select(where(is.numeric), -SalePrice)
+  dplyr::select(where(is.numeric), -SalePrice)
 
 # Contar número de variables numéricas que quedan
 num_numeric_vars <- data_pisos_train_clean %>%
-  select(where(is.numeric), -Id, -SalePrice, -log_SalePrice) %>%
+  dplyr::select(where(is.numeric), -Id, -SalePrice, -log_SalePrice) %>%
   ncol()
 
 num_numeric_vars
@@ -1466,7 +1487,7 @@ library(pheatmap)
 
 # 1) Preparar matriz numérica (usar dataset ya imputado)
 X <- data_pisos_train_imputed |>
-  select(where(is.numeric), -Id, -SalePrice)
+  dplyr::select(where(is.numeric), -Id, -SalePrice)
 
 # 2) Estandarizar
 X_scaled <- scale(X)
@@ -2399,109 +2420,249 @@ print(final_metrics_df)
 # - Es robusto (validado en split 80/20 con métricas consistentes).
 # =============================================================================
 
-
-
-# =============================================================================
-# SECCIÓN EXTRA: ESTRATEGIA KAGGLE -------
-# =============================================================================
-library(e1071) 
-library(dplyr)
-library(caret)
-library(glmnet)
-library(mgcv)
-
-# 1. CREACIÓN DEL DATASET OPTIMIZADO
 # -----------------------------------------------------------------------------
-data_opt <- data_pisos_train_clean
+# SUBMUSSION DEL GAM ------
+# -----------------------------------------------------------------------------
+print("--- PREPARANDO SUBMISSION DEL MODELO GAM (SOLO) ---")
 
-# A. ELIMINACIÓN DE OUTLIERS (GrLivArea > 4000)
-if("GrLivArea" %in% names(data_opt)) {
-  orig_rows <- nrow(data_opt)
-  # Filtramos outliers
-  data_opt <- data_opt %>% filter(!(GrLivArea > 4000 & log_SalePrice < 12.5))
-  print(paste("Outliers eliminados:", orig_rows - nrow(data_opt)))
-}
+# 1. PREPARAR DATOS (Asegurar mismas transformaciones en Train y Test)
+# -----------------------------------------------------------------------------
+# Usamos los datasets imputados que ya tienes limpios
+full_train <- data_pisos_train_imputed # Sale 0.13466 si usamos imputed y 0.13753 si usamos clean (en kaggle con el test)
+full_test  <- data_pisos_test_imputed
 
-# B. CODIFICACIÓN ORDINAL (Calidad como números)
+# A. CODIFICACIÓN ORDINAL (Calidad a números)
+# Esto es vital para que el GAM entienda la jerarquía de calidad
 qual_cols <- c("ExterQual", "ExterCond", "BsmtQual", "BsmtCond", 
                "HeatingQC", "KitchenQual", "FireplaceQu", "GarageQual", "GarageCond")
 qual_levels <- c("Po", "Fa", "TA", "Gd", "Ex") 
 
 for(col in qual_cols) {
-  if(col %in% names(data_opt)) {
-    # Convertimos a número respetando el orden
-    data_opt[[col]] <- as.numeric(factor(data_opt[[col]], levels = qual_levels, ordered = TRUE))
-    data_opt[[col]][is.na(data_opt[[col]])] <- 0
+  # Train
+  if(col %in% names(full_train)) {
+    full_train[[col]] <- as.numeric(factor(full_train[[col]], levels = qual_levels, ordered = TRUE))
+    full_train[[col]][is.na(full_train[[col]])] <- 0
+  }
+  # Test
+  if(col %in% names(full_test)) {
+    full_test[[col]] <- as.numeric(factor(full_test[[col]], levels = qual_levels, ordered = TRUE))
+    full_test[[col]][is.na(full_test[[col]])] <- 0
   }
 }
 
-# C. TRANSFORMACIÓN LOGARÍTMICA (SKEWNESS)
-num_cols <- sapply(data_opt, is.numeric)
-cols_to_check <- setdiff(names(data_opt)[num_cols], c("log_SalePrice", "Id", "SalePrice"))
+# B. TRANSFORMACIÓN LOGARÍTMICA (Skewness)
+# Calculamos asimetría SOLO en Train y aplicamos a ambos
+vars_num <- names(full_train)[sapply(full_train, is.numeric)]
+vars_check <- setdiff(vars_num, c("Id", "SalePrice", "log_SalePrice"))
 
-skewed_feats <- sapply(data_opt[, cols_to_check], skewness, na.rm = TRUE)
-high_skew <- names(skewed_feats[skewed_feats > 0.75])
+skew_vals <- sapply(full_train[, vars_check], skewness, na.rm = TRUE)
+vars_log <- names(skew_vals[skew_vals > 0.75])
 
-print(paste("Transformando", length(high_skew), "variables sesgadas con Log(x+1)..."))
-for(col in high_skew) {
-  data_opt[[col]] <- log1p(data_opt[[col]])
+print(paste("Aplicando Log a", length(vars_log), "variables (Train y Test)..."))
+for(v in vars_log) {
+  full_train[[v]] <- log1p(full_train[[v]])
+  if(v %in% names(full_test)) {
+    full_test[[v]] <- log1p(full_test[[v]])
+  }
 }
 
-# 2. PREPARACIÓN DE MATRICES
+# 2. DEFINIR LA VARIABLE OBJETIVO
 # -----------------------------------------------------------------------------
-set.seed(123)
-idx_opt <- createDataPartition(data_opt$log_SalePrice, p = 0.8, list = FALSE)
+full_train$log_SalePrice <- log(full_train$SalePrice)
 
-train_opt <- data_opt[idx_opt, ]
-val_opt   <- data_opt[-idx_opt, ]
-
-# Usamos dplyr::select explícitamente para evitar el error
-X_tr_opt <- model.matrix(log_SalePrice ~ ., data = train_opt %>% dplyr::select(-Id))[, -1]
-y_tr_opt <- train_opt$log_SalePrice
-
-X_va_opt <- model.matrix(log_SalePrice ~ ., data = val_opt %>% dplyr::select(-Id))[, -1]
-
-# 3. RE-ENTRENAMIENTO (ElasticNet y GAM)
+# 3. RE-ENTRENAR EL GAM CON EL 100% DE LOS DATOS
 # -----------------------------------------------------------------------------
+# Usamos la fórmula que definimos anteriormente. Si no existe, usamos una robusta por defecto.
+if(!exists("gam_formula")) {
+  print("Aviso: 'gam_formula' no encontrada. Creando fórmula estándar con top variables.")
+  # Fórmula con splines s() en las más importantes y lineales en el resto
+  gam_formula <- as.formula("log_SalePrice ~ s(TotalSF, k=5) + s(GrLivArea, k=5) + s(YearBuilt, k=5) + s(YearRemodAdd, k=5) + OverallQual + Neighborhood + TotalBath")
+}
 
-# Re-entrenando ElasticNet Optimizado
-set.seed(123)
-enet_opt <- cv.glmnet(X_tr_opt, y_tr_opt, alpha = 0.4, standardize = TRUE)
-# Convertimos explícitamente a vector numérico
-preds_enet_opt <- as.numeric(predict(enet_opt, newx = X_va_opt, s = "lambda.1se"))
+print("Entrenando GAM Final con el 100% del Dataset...")
+# method = "REML" es el estándar más robusto para GAMs
+final_gam_model <- gam(gam_formula, data = full_train, method = "REML")
 
-# Re-entrenando GAM Optimizado
-gam_opt <- gam(gam_formula, data = train_opt, method = "REML")
-# Convertimos explícitamente a vector numérico
-preds_gam_opt <- as.numeric(predict(gam_opt, newdata = val_opt))
-
-# 4. ENSEMBLING (LA MEDIA)
+# 4. PREDECIR SOBRE EL TEST SET
 # -----------------------------------------------------------------------------
-preds_ensemble <- (preds_enet_opt + preds_gam_opt) / 2
+print("Generando predicciones...")
 
-# 5. RESULTADOS
+# Predecir en escala Log
+preds_log <- predict(final_gam_model, newdata = full_test)
+
+# Convertir a Euros (Exponencial)
+preds_euros <- exp(preds_log)
+
+# 5. CREAR ARCHIVO CSV
 # -----------------------------------------------------------------------------
-# Recalculamos RMSE asegurando que todo son números
-rmse_gam_orig <- rmse_gam # Mejor valor anterior (0.1077)
+submission_gam <- data.frame(
+  Id = data_pisos_test$Id, # Aseguramos usar los IDs originales
+  SalePrice = as.numeric(preds_euros)
+)
 
-rmse_enet_new <- sqrt(mean((preds_enet_opt - val_opt$log_SalePrice)^2))
-rmse_gam_new  <- sqrt(mean((preds_gam_opt - val_opt$log_SalePrice)^2))
-rmse_ens_new  <- sqrt(mean((preds_ensemble - val_opt$log_SalePrice)^2))
+# Nombre del archivo
+filename <- "submission_GAM_Solo.csv"
+write.csv(submission_gam, filename, row.names = FALSE)
 
-mejora_df <- data.frame(
-  Escenario = c("Original (GAM)", "Nuevo: ElasticNet Opt", "Nuevo: GAM Opt", "Nuevo: ENSEMBLE"),
-  RMSE_Validation = c(rmse_gam_orig, rmse_enet_new, rmse_gam_new, rmse_ens_new)
-) %>%
-  arrange(RMSE_Validation)
-
-print("--- RESULTADOS TRAS OPTIMIZACIÓN AVANZADA ---")
-print(mejora_df)
-
-# Lógica de éxito
-best_val <- min(mejora_df$RMSE_Validation)
-if(best_val < rmse_gam_orig) {
-  print(paste("¡MEJORA CONFIRMADA! Nuevo RMSE:", round(best_val, 5)))
-  print(paste("Reducción de error:", round(rmse_gam_orig - best_val, 5)))
+# 6. VERIFICACIÓN FINAL
+# -----------------------------------------------------------------------------
+print(paste("--- ARCHIVO GENERADO:", filename, "---"))
+if(nrow(submission_gam) == 1459 && ncol(submission_gam) == 2) {
+  print("✅ VERIFICACIÓN OK: 1459 filas, 2 columnas (Id, SalePrice).")
+  print(head(submission_gam))
 } else {
-  print("El modelo original sigue ganando. Las mejoras no afectaron significativamente.")
+  print("❌ ERROR EN EL FORMATO DE SALIDA.")
 }
+
+
+
+
+
+
+# =============================================================================
+# Submussion de 0.12217 RMSE en el test: Prueba en kaggle -----
+# =============================================================================
+library(dplyr)
+library(caret)
+library(glmnet)
+library(e1071)
+library(Matrix)
+
+print("--- 1. CARGA Y LIMPIEZA QUIRÚRGICA ---")
+train_df <- read.csv("data/train.csv", stringsAsFactors = FALSE)
+test_df  <- read.csv("data/test.csv", stringsAsFactors = FALSE)
+
+# OUTLIERS: La limpieza estándar de Ames (GrLivArea > 4000)
+train_df <- train_df %>% filter(!(GrLivArea > 4000 & SalePrice < 300000))
+
+# Preparamos Target y Unión
+train_df$log_SalePrice <- log(train_df$SalePrice)
+test_ids <- test_df$Id
+
+# Unir para procesar todo junto
+full_data <- bind_rows(
+  train_df %>% dplyr::select(-Id, -SalePrice, -log_SalePrice),
+  test_df %>% dplyr::select(-Id)
+)
+
+print("--- 2. IMPUTACIÓN ROBUSTA (ELIMINANDO RUIDO) ---")
+
+# A. "None" para categorías donde NA significa ausencia
+cols_none <- c("PoolQC", "MiscFeature", "Alley", "Fence", "FireplaceQu",
+               "GarageType", "GarageFinish", "GarageQual", "GarageCond",
+               "BsmtQual", "BsmtCond", "BsmtExposure", "BsmtFinType1", "BsmtFinType2",
+               "MasVnrType", "MSSubClass")
+
+for(c in cols_none) full_data[[c]][is.na(full_data[[c]])] <- "None"
+
+# B. Cero para numéricas relacionadas
+cols_zero <- c("GarageYrBlt", "GarageArea", "GarageCars",
+               "BsmtFinSF1", "BsmtFinSF2", "BsmtUnfSF","TotalBsmtSF",
+               "MasVnrArea", "BsmtFullBath", "BsmtHalfBath")
+
+for(c in cols_zero) full_data[[c]][is.na(full_data[[c]])] <- 0
+
+# C. Moda/Mediana para lo demás (muy pocos casos)
+# LotFrontage es importante imputarlo por vecindario si es posible, 
+# pero la mediana global es robusta para modelos lineales.
+imputer <- preProcess(full_data, method = c("medianImpute"))
+full_data <- predict(imputer, full_data)
+
+vars_char <- names(full_data)[sapply(full_data, is.character)]
+for(c in vars_char) {
+  if(any(is.na(full_data[[c]]))) {
+    moda <- names(sort(table(full_data[[c]]), decreasing=TRUE))[1]
+    full_data[[c]][is.na(full_data[[c]])] <- moda
+  }
+}
+
+print("--- 3. FEATURE ENGINEERING 'GOD MODE' (INTERACCIONES) ---")
+
+# A. Variables Base (Las que ya sabemos que funcionan)
+full_data$TotalSF <- full_data$TotalBsmtSF + full_data$X1stFlrSF + full_data$X2ndFlrSF
+full_data$TotalBath <- full_data$FullBath + 0.5 * full_data$HalfBath + full_data$BsmtFullBath + 0.5 * full_data$BsmtHalfBath
+full_data$HouseAge <- 2010 - full_data$YearBuilt
+full_data$RemodAge <- 2010 - full_data$YearRemodAdd
+
+# B. Convertir Calidad a Número para poder MULTIPLICAR
+qual_map <- c("None"=0, "Po"=1, "Fa"=2, "TA"=3, "Gd"=4, "Ex"=5)
+full_data$OverallQualNum <- full_data$OverallQual # Ya es numérico (1-10)
+full_data$ExterQualNum <- as.numeric(factor(full_data$ExterQual, levels=c("Po","Fa","TA","Gd","Ex"), ordered=TRUE))
+full_data$KitchenQualNum <- as.numeric(factor(full_data$KitchenQual, levels=c("Po","Fa","TA","Gd","Ex"), ordered=TRUE))
+# Rellenar posibles NAs generados en conversión
+full_data$ExterQualNum[is.na(full_data$ExterQualNum)] <- 3
+full_data$KitchenQualNum[is.na(full_data$KitchenQualNum)] <- 3
+
+# C. INTERACCIONES
+# Multiplicamos Calidad * Tamaño. Esto captura casas de lujo vs casas grandes pero malas.
+full_data$Qual_TotalSF <- full_data$OverallQualNum * full_data$TotalSF
+full_data$Qual_GrLivArea <- full_data$OverallQualNum * full_data$GrLivArea
+full_data$Qual_Bath <- full_data$OverallQualNum * full_data$TotalBath
+full_data$Kitchen_Score <- full_data$KitchenQualNum * full_data$KitchenAbvGr
+
+# D. Variables Binarias Críticas
+full_data$HasPool <- ifelse(full_data$PoolArea > 0, 1, 0)
+full_data$HasGarage <- ifelse(full_data$GarageArea > 0, 1, 0)
+full_data$HasBsmt <- ifelse(full_data$TotalBsmtSF > 0, 1, 0)
+full_data$HasFireplace <- ifelse(full_data$Fireplaces > 0, 1, 0)
+
+# E. Asegurar que Categóricas sean Factores
+full_data$MSSubClass <- as.factor(full_data$MSSubClass)
+full_data$MoSold <- as.factor(full_data$MoSold)
+
+print("--- 4. TRANSFORMACIONES FINALES ---")
+
+# Logaritmo a todas las numéricas con sesgo (incluidas las nuevas interacciones)
+nums <- sapply(full_data, is.numeric)
+skewed <- sapply(full_data[, nums], skewness, na.rm = TRUE)
+vars_log <- names(skewed[skewed > 0.5]) # Umbral más bajo (0.5) para capturar más variables
+# Excluir binarias
+vars_log <- setdiff(vars_log, c("HasPool", "HasGarage", "HasBsmt", "HasFireplace"))
+
+for(v in vars_log) {
+  full_data[[v]] <- log1p(full_data[[v]])
+}
+
+# Dummies (One-Hot)
+# model.matrix genera todas las combinaciones
+X_full <- model.matrix(~ . -1, data = full_data)
+
+# Separar Train/Test
+n_train <- nrow(train_df)
+X_train <- X_full[1:n_train, ]
+X_test  <- X_full[(n_train + 1):nrow(X_full), ]
+y_train <- train_df$log_SalePrice
+
+print("--- 5. ENSEMBLE (LASSO + RIDGE + ELASTICNET) ---")
+# Usamos 3 modelos lineales distintos. Sus errores suelen cancelarse.
+set.seed(42)
+
+# MODELO 1: RIDGE (Alpha = 0) -> Conserva todas las variables, baja coeficientes.
+# Bueno para cuando tenemos interacciones correlacionadas (como TotalSF y Qual_TotalSF)
+print("Entrenando Ridge...")
+cv_ridge <- cv.glmnet(X_train, y_train, alpha = 0, type.measure = "mse", nfolds = 10)
+pred_ridge <- predict(cv_ridge, newx = X_test, s = "lambda.min")
+
+# MODELO 2: LASSO (Alpha = 1) -> Selección agresiva.
+# Se queda solo con lo importante.
+print("Entrenando Lasso...")
+cv_lasso <- cv.glmnet(X_train, y_train, alpha = 1, type.measure = "mse", nfolds = 10)
+pred_lasso <- predict(cv_lasso, newx = X_test, s = "lambda.min")
+
+# MODELO 3: ELASTICNET (Alpha = 0.5) -> Balanceado.
+print("Entrenando ElasticNet...")
+cv_enet <- cv.glmnet(X_train, y_train, alpha = 0.5, type.measure = "mse", nfolds = 10)
+pred_enet <- predict(cv_enet, newx = X_test, s = "lambda.min")
+
+# BLENDING (MEZCLA) PONDERADA
+# Normalmente Lasso y Enet funcionan mejor, Ridge apoya.
+# Damos pesos: 40% Lasso, 40% Enet, 20% Ridge
+print("Mezclando predicciones...")
+preds_log_blend <- (0.4 * pred_lasso) + (0.4 * pred_enet) + (0.2 * pred_ridge)
+
+preds_final <- exp(preds_log_blend)
+
+# Guardar
+submission <- data.frame(Id = test_ids, SalePrice = as.numeric(preds_final))
+write.csv(submission, "submission_GOD_MODE.csv", row.names = FALSE)
+print("Generado: submission_GOD_MODE.csv")
