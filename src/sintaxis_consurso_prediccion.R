@@ -1,6 +1,6 @@
-## ----------------------------------------------------------------------------------------------------------
-## ----------------------------------------------- LIBRERÍAS ------------------------------------------------
-## ----------------------------------------------------------------------------------------------------------
+# -----------------------------------------------------------------
+# SECCIÓN 1: CONFIGURACIÓN INICIAL Y CARGA DE LIBRERÍAS ------
+# -----------------------------------------------------------------
 
 # Pacman is a package to better handle the missing packages, when trying to load a package that is not present, it automatically installs it.
 if (!require("pacman")) {
@@ -31,18 +31,22 @@ pacman::p_load(
   DescTools
 )
 
+## 1.2. Definir operador personalizado
 `%notin%` <- Negate("%in%")
 
-## ----------------------------------------------------------------------------------------------------------
-## -------------------------------------------------- BBDD --------------------------------------------------
-## ----------------------------------------------------------------------------------------------------------
-
-# Ensuring reproducibility
+## 1.3. Configurar reproducibilidad
+# Eliminamos variables previas y fijamos la semilla
 rm(list = ls())
 set.seed(12345)
 
 
-## Leemos el id como character, que por defecto lo leía como numeric, el resto por defecto
+# -----------------------------------------------------------------
+# SECCIÓN 2: CARGA Y PREPARACIÓN INICIAL DE DATOS ------
+# -----------------------------------------------------------------
+## 2.1. Lectura de datos
+# Cargamos dataset de entrenamiento y prueba
+# El Id se lee como character (por defecto viene numérico)
+
 data_pisos_train <- read.csv(
   "./data/train.csv",
   encoding = "UTF-8",
@@ -64,154 +68,140 @@ data_pisos_test <- read.csv(
     conjunto = "test"
   )
 
+## 2.2. Combinar train y test
+# Reunimos ambos datasets para procesamiento conjunto
 data_pisos <- rbind(data_pisos_train, data_pisos_test)
 
-## ----------------------------------------------------------------------------------------------------------
-## --------------------------------------------- DATA CLEANING ----------------------------------------------
-## ----------------------------------------------------------------------------------------------------------
+# -----------------------------------------------------------------
+# SECCIÓN 3: LIMPIEZA DE DATOS - GESTIÓN DE VALORES FALTANTES ------
+# -----------------------------------------------------------------
 
-## Cambiamos los NA's de aquellas variables para las que conocemos su valor (véase el data dictionary)
+## 3.1. Imputación de valores faltantes según diccionario de datos
+# Para variables categóricas donde NA tiene significado específico (ej: "No Garage", "No Pool")
 data_pisos <- data_pisos %>%
   mutate(
+    # Variables ordinales convertidas a factor con orden
     MSSubClass = factor(as.character(MSSubClass)),
+    OverallQual = factor(as.character(OverallQual), levels = 1:10),
+    OverallCond = factor(as.character(OverallCond), levels = 1:10),
+    
+    # Variables con NA significativo: "No acceso" o "No existe"
     Alley = factor(ifelse(
       is.na(Alley),
       "No alley access",
       Alley
     )),
-    OverallQual = factor(as.character(OverallQual), levels = 1:10),
-    OverallCond = factor(as.character(OverallCond), levels = 1:10),
+    
     MasVnrType = factor(
       MasVnrType,
       levels = c("None", "BrkCmn", "BrkFace", "CBlock", "Stone")
     ),
+    
+    # Variables de calidad (ordinales: Po < Fa < TA < Gd < Ex)
     ExterQual = factor(ExterQual, levels = c("Po", "Fa", "TA", "Gd", "Ex")),
     ExterCond = factor(ExterCond, levels = c("Po", "Fa", "TA", "Gd", "Ex")),
+    
+    # Sótano: imputar "No Basement" cuando falta
     BsmtQual = factor(
-      ifelse(
-        is.na(BsmtQual),
-        "No Basement",
-        as.character(BsmtQual)
-      ),
+      ifelse(is.na(BsmtQual), "No Basement", as.character(BsmtQual)),
       levels = c("No Basement", "Po", "Fa", "TA", "Gd", "Ex")
     ),
     BsmtCond = factor(
-      ifelse(
-        is.na(BsmtCond),
-        "No Basement",
-        as.character(BsmtCond)
-      ),
+      ifelse(is.na(BsmtCond), "No Basement", as.character(BsmtCond)),
       levels = c("No Basement", "Po", "Fa", "TA", "Gd", "Ex")
     ),
     BsmtExposure = factor(
-      ifelse(
-        is.na(BsmtExposure),
-        "No Basement",
-        as.character(BsmtExposure)
-      ),
+      ifelse(is.na(BsmtExposure), "No Basement", as.character(BsmtExposure)),
       levels = c("No Basement", "No", "Mn", "Av", "Gd")
     ),
     BsmtFinType1 = factor(
-      ifelse(
-        is.na(BsmtFinType1),
-        "No Basement",
-        as.character(BsmtFinType1)
-      ),
+      ifelse(is.na(BsmtFinType1), "No Basement", as.character(BsmtFinType1)),
       levels = c("No Basement", "Unf", "LwQ", "Rec", "BLQ", "ALQ", "GLQ")
     ),
     BsmtFinType2 = factor(
-      ifelse(
-        is.na(BsmtFinType2),
-        "No Basement",
-        as.character(BsmtFinType2)
-      ),
+      ifelse(is.na(BsmtFinType2), "No Basement", as.character(BsmtFinType2)),
       levels = c("No Basement", "Unf", "LwQ", "Rec", "BLQ", "ALQ", "GLQ")
     ),
+    
+    # Calefacción
     HeatingQC = factor(HeatingQC, levels = c("Po", "Fa", "TA", "Gd", "Ex")),
     KitchenQual = factor(KitchenQual, levels = c("Po", "Fa", "TA", "Gd", "Ex")),
+    
+    # Chimenea: imputar "No Fireplace"
     FireplaceQu = factor(
-      ifelse(
-        is.na(FireplaceQu),
-        "No Fireplace",
-        as.character(FireplaceQu)
-      ),
+      ifelse(is.na(FireplaceQu), "No Fireplace", as.character(FireplaceQu)),
       levels = c("No Fireplace", "Po", "Fa", "TA", "Gd", "Ex")
     ),
-    GarageType = factor(ifelse(
-      is.na(GarageType),
-      "No Garage",
-      as.character(GarageType)
-    )),
+    
+    # Garaje: imputar "No Garage"
+    GarageType = factor(ifelse(is.na(GarageType), "No Garage", as.character(GarageType))),
     GarageFinish = factor(
-      ifelse(
-        is.na(GarageFinish),
-        "No Garage",
-        as.character(GarageFinish)
-      ),
+      ifelse(is.na(GarageFinish), "No Garage", as.character(GarageFinish)),
       levels = c("No Garage", "Unf", "RFn", "Fin")
     ),
     GarageQual = factor(
-      ifelse(
-        is.na(GarageQual),
-        "No Garage",
-        as.character(GarageQual)
-      ),
+      ifelse(is.na(GarageQual), "No Garage", as.character(GarageQual)),
       levels = c("No Garage", "Po", "Fa", "TA", "Gd", "Ex")
     ),
     GarageCond = factor(
-      ifelse(
-        is.na(GarageCond),
-        "No Garage",
-        as.character(GarageCond)
-      ),
+      ifelse(is.na(GarageCond), "No Garage", as.character(GarageCond)),
       levels = c("No Garage", "Po", "Fa", "TA", "Gd", "Ex")
     ),
+    
+    # Piscina: imputar "No Pool"
     PoolQC = factor(
-      ifelse(
-        is.na(PoolQC),
-        "No Pool",
-        as.character(PoolQC)
-      ),
+      ifelse(is.na(PoolQC), "No Pool", as.character(PoolQC)),
       levels = c("No Pool", "Po", "Fa", "TA", "Gd", "Ex")
     ),
+    
+    # Cerca: imputar "No Fence"
     Fence = factor(
-      ifelse(
-        is.na(Fence),
-        "No Fence",
-        as.character(Fence)
-      ),
+      ifelse(is.na(Fence), "No Fence", as.character(Fence)),
       levels = c("No Fence", "MnWw", "GdWo", "MnPrv", "GdPrv")
     ),
-    MiscFeature = factor(ifelse(is.na(MiscFeature), "None", MiscFeature)),
+    
+    # Características misceláneas
+    MiscFeature = factor(ifelse(is.na(MiscFeature), "None", MiscFeature))
+  )
 
-    # CREAMOS VARIABLES TRANSFORMADAS (ELIMINAMOS REDUNDANCIAS)
-    # Total de baños (combinando todos)
+# -----------------------------------------------------------------
+# SECCIÓN 4: CREACIÓN DE VARIABLES TRANSFORMADAS ------
+# -----------------------------------------------------------------
+
+## 4.1. Agrupar y sintetizar variables redundantes
+# Combinamos variables relacionadas para mejorar interpretabilidad y reducir multicolinealidad
+
+data_pisos <- data_pisos %>%
+  mutate(
+    # Agregación de baños: combinar todos los tipos
+    # 1 full bath = 1, 1 half bath = 0.5
     TotalBath = FullBath + HalfBath * 0.5 + BsmtFullBath + BsmtHalfBath * 0.5,
-
-    # Edad de la casa al momento de la venta
+    
+    # Edad de la vivienda en años (al momento de venta)
     HouseAge = YrSold - YearBuilt,
-
-    # Años desde la última remodelación
+    
+    # Tiempo transcurrido desde la última remodelación
     YearsSinceRemod = YrSold - YearRemodAdd,
-
-    # Área total de superficie (sótano + área habitable)
+    
+    # Superficie total: sótano + área habitable
     TotalSF = TotalBsmtSF + GrLivArea,
-
-    # Área total de porches
-    TotalPorchSF = WoodDeckSF +
-      OpenPorchSF +
-      EnclosedPorch +
-      X3SsnPorch +
-      ScreenPorch,
-
-    # Indicador de si tiene segundo piso
+    
+    # Superficie total de porches y terrazas
+    TotalPorchSF = WoodDeckSF + OpenPorchSF + EnclosedPorch + X3SsnPorch + ScreenPorch,
+    
+    # Indicador binario: presencia de segundo piso
     Has2ndFloor = ifelse(X2ndFlrSF > 0, "Yes", "No"),
-
-    # Indicador de si fue remodelado
+    
+    # Indicador binario: si fue remodelado después de construcción original
     IsRemodeled = ifelse(YearRemodAdd > YearBuilt, "Yes", "No")
   )
 
-# Analizar correlación de las nuevas variables con SalePrice
+# -----------------------------------------------------------------
+# SECCIÓN 5: ANÁLISIS DE VARIABLES TRANSFORMADAS NUEVAS ------
+# -----------------------------------------------------------------
+
+## 5.1. Analizar correlación de las nuevas variables con SalePrice
+
 new_vars <- c(
   "TotalBath",
   "HouseAge",
@@ -230,7 +220,8 @@ cor_new_vars <- data_pisos |>
   select(SalePrice) |>
   arrange(desc(abs(SalePrice)))
 
-# Preparar datos para visualización
+## 5.2. Visualización de nuevas variables vs SalePrice
+
 plot_data <- data_pisos |>
   select(TotalBath, TotalSF, HouseAge, SalePrice)
 
@@ -269,6 +260,11 @@ p4 <- data_pisos |>
 grid.arrange(p1, p4, p2, p3, ncol = 2)
 
 
+# ----------------------------------------------------------------------------
+# SECCIÓN 6: IDENTIFICACIÓN Y ELIMINACIÓN DE VARIABLES SIN VARIABILIDAD ------
+# ----------------------------------------------------------------------------
+
+
 ## Variables sin variabilidad -> no aportan nada al modelo -> eliminar
 data_for_nzv <- data_pisos |>
   select(-Id, -SalePrice) |>
@@ -281,7 +277,9 @@ nzv_vars <- nzv_info |>
   rownames_to_column("variable") |>
   filter(nzv == TRUE | zeroVar == TRUE)
 
-# Visualización de las variables más problemáticas
+## 6.2. Visualizar variables problemáticas (baja variabilidad)
+
+# Gráfico 1: Número de cocinas (casi todas tienen 1)
 p1 <- data_pisos |>
   count(KitchenAbvGr) |>
   mutate(prop = n / sum(n)) |>
@@ -300,6 +298,7 @@ p1 <- data_pisos |>
   ) +
   theme_minimal()
 
+# Gráfico 2: Servicios disponibles (casi todos "AllPub")
 p2 <- data_pisos |>
   count(Utilities) |>
   mutate(prop = n / sum(n)) |>
@@ -318,6 +317,8 @@ p2 <- data_pisos |>
   ) +
   theme_minimal()
 
+
+# Gráfico 3: Tipo de calle (casi todos "Pave")
 p3 <- data_pisos |>
   count(Street) |>
   mutate(prop = n / sum(n)) |>
@@ -336,6 +337,8 @@ p3 <- data_pisos |>
   ) +
   theme_minimal()
 
+
+# Gráfico 4: Presencia de piscina (muy pocas)
 p4 <- data_pisos |>
   count(PoolArea > 0) |>
   mutate(
@@ -367,9 +370,11 @@ graficos_variables_eliminar_sinvariabilidad <- grid.arrange(
 variables_eliminar_sinvariabilidad <- nzv_vars$variable
 
 
-## Variables categóricas redundantes
+# -----------------------------------------------------------------
+# SECCIÓN 7: ELIMINACIÓN DE VARIABLES REDUNDANTES ------
+# -----------------------------------------------------------------
 
-# Crear dataset final eliminando variables redundantes
+## 7.1. Crear dataset final eliminando variables sin variabilidad y redundantes
 data_pisos_final <- data_pisos |>
   select(-all_of(variables_eliminar_sinvariabilidad)) %>%
   # Eliminar variables redundantes
@@ -413,8 +418,8 @@ data_pisos_final <- data_pisos |>
     )
   )
 
-
-## Volvemos a separar en train y test, y eliminamos la variable respuesta de test
+## 7.2. Separar de nuevo en train y test
+## eliminamos la variable respuesta de test
 data_pisos_train <- data_pisos_final %>%
   filter(conjunto == "train") %>%
   select(-conjunto)
@@ -423,13 +428,13 @@ data_pisos_test <- data_pisos_final %>%
   filter(conjunto == "test") %>%
   select(-conjunto, -SalePrice)
 
-## ----------------------------------------------------------------------------------------------------------
-## ------------------------------------------------- EDA (SOLO DE TRAIN) ------------------------------------
-## ----------------------------------------------------------------------------------------------------------
+# -----------------------------------------------------------------
+# SECCIÓN 8: ANÁLISIS EXPLORATORIO (EDA) - VARIABLE RESPUESTA ------
+# -----------------------------------------------------------------
 
-## TODO: HACER ANALISIS EXPLORATORIO GENERAL DE TRAIN, AHORA SOLO HE MIRADO MISSINGS
-## --------------------------------------- Variable respuesta ----------------------------------------------
-# Análisis normalidad respuesta
+## 8.1. Análisis de la variable respuesta (SalePrice)
+
+# Gráfico 1: Histograma escala normal (distribución sesgada)
 p1 <- data_pisos_train |>
   ggplot(aes(x = SalePrice)) +
   geom_histogram(bins = 50, fill = "steelblue", alpha = 0.7, color = "white") +
@@ -442,6 +447,7 @@ p1 <- data_pisos_train |>
   ) +
   theme_minimal()
 
+# Gráfico 2: Histograma escala logarítmica (más normal)
 p2 <- data_pisos_train |>
   ggplot(aes(x = SalePrice)) +
   geom_histogram(bins = 50, fill = "coral", alpha = 0.7, color = "white") +
@@ -454,6 +460,7 @@ p2 <- data_pisos_train |>
   ) +
   theme_minimal()
 
+# Gráfico 3: Q-Q plot escala normal
 p3 <- data_pisos_train |>
   ggplot(aes(sample = SalePrice)) +
   stat_qq(color = "steelblue", alpha = 0.7) +
@@ -461,6 +468,7 @@ p3 <- data_pisos_train |>
   labs(title = "Q-Q Plot: SalePrice", subtitle = "Heavy right tail visible") +
   theme_minimal()
 
+# Gráfico 4: Q-Q plot escala logarítmica
 p4 <- data_pisos_train |>
   ggplot(aes(sample = log(SalePrice))) +
   stat_qq(color = "coral", alpha = 0.7) +
@@ -473,7 +481,9 @@ p4 <- data_pisos_train |>
 
 grafico_exploratorio_respuesta <- grid.arrange(p1, p2, p3, p4, ncol = 2)
 
-## Correlaciones de la respuesta con variables numéricas
+
+## 8.2. Correlaciones: variables numéricas con SalePrice
+
 correlations <- data_pisos_train |>
   select(where(is.numeric), -Id) |>
   cor(use = "complete.obs") |>
@@ -485,7 +495,6 @@ correlations <- data_pisos_train |>
   mutate(abs_cor = abs(SalePrice))
 
 top10 <- correlations |> head(10)
-
 
 grafico_correlaciones_precio_predictores <- ggplot(
   top10,
@@ -508,7 +517,14 @@ grafico_correlaciones_precio_predictores <- ggplot(
   theme_minimal() +
   theme(panel.grid.major.y = element_blank())
 
-## Análisis de variables categóricas
+
+# -----------------------------------------------------------------
+# SECCIÓN 9: ANÁLISIS EXPLORATORIO - VARIABLES CATEGÓRICAS ------
+# -----------------------------------------------------------------
+
+## 9.1. Relación de variables categóricas con el precio
+
+# Gráfico 1: Calidad general vs Precio
 p1 <- data_pisos_train |>
   ggplot(aes(x = factor(OverallQual), y = SalePrice)) +
   geom_boxplot(
@@ -526,6 +542,7 @@ p1 <- data_pisos_train |>
   ) +
   theme_minimal()
 
+# Gráfico 2: Vecindario vs Precio (ordenado por mediana)
 median_by_neighborhood <- data_pisos_train |>
   group_by(Neighborhood) |>
   summarise(median_price = median(SalePrice, na.rm = TRUE), n = n()) |>
@@ -545,6 +562,7 @@ p2 <- data_pisos_train |>
   ) +
   theme_minimal()
 
+# Gráfico 3: Calidad de fachada vs Precio
 p3 <- data_pisos_train |>
   mutate(ExterQual = fct_reorder(ExterQual, SalePrice, .fun = median)) |>
   ggplot(aes(x = ExterQual, y = SalePrice)) +
@@ -557,6 +575,7 @@ p3 <- data_pisos_train |>
   ) +
   theme_minimal()
 
+# Gráfico 4: Calidad de cocina vs Precio
 p4 <- data_pisos_train |>
   mutate(KitchenQual = fct_reorder(KitchenQual, SalePrice, .fun = median)) |>
   ggplot(aes(x = KitchenQual, y = SalePrice)) +
@@ -571,9 +590,9 @@ p4 <- data_pisos_train |>
 
 grid.arrange(p1, p2, p3, p4, ncol = 2)
 
-## --------------------------------------- Predictores: variables categóricas -------------------------------
-# Identificar pares de categóricas altamente correlacionados
-# Variables de calidad
+## 9.2. Identificar variables categóricas redundantes mediante correlación
+
+# Convertir a numérico para calcular correlaciones
 quality_vars <- c(
   "ExterQual",
   "ExterCond",
@@ -605,7 +624,7 @@ quality_numeric <- data_pisos_train |>
     )
   ))
 
-# Correlaciones entre variables de calidad
+# Matriz de correlaciones entre variables de calidad
 cor_quality <- cor(quality_numeric, use = "complete.obs")
 
 pheatmap(
@@ -622,7 +641,9 @@ pheatmap(
   legend_breaks = c(-1, -0.5, 0, 0.5, 1)
 )
 
+## 9.3. Visualizar pares altamente correlacionados
 
+# Gráfico 1: ExterQual vs KitchenQual
 p1 <- data_pisos_train |>
   count(ExterQual, KitchenQual) |>
   ggplot(aes(x = ExterQual, y = KitchenQual, fill = n)) +
@@ -638,6 +659,7 @@ p1 <- data_pisos_train |>
   theme_minimal() +
   theme(legend.position = "none")
 
+# Gráfico 2: GarageQual vs GarageCond (REDUNDANCIA ALTA)
 p2 <- data_pisos_train |>
   count(GarageQual, GarageCond) |>
   ggplot(aes(x = GarageQual, y = GarageCond, fill = n)) +
@@ -653,6 +675,7 @@ p2 <- data_pisos_train |>
   theme_minimal() +
   theme(legend.position = "none")
 
+# Gráfico 3: ExterQual → Precio (buen predictor)
 p3 <- data_pisos_train |>
   ggplot(aes(x = ExterQual, y = SalePrice, fill = ExterQual)) +
   geom_violin(alpha = 0.7, show.legend = FALSE) +
@@ -667,6 +690,7 @@ p3 <- data_pisos_train |>
   ) +
   theme_minimal()
 
+# Gráfico 4: ExterCond → Precio (predictor débil)
 p4 <- data_pisos_train |>
   ggplot(aes(x = ExterCond, y = SalePrice, fill = ExterCond)) +
   geom_violin(alpha = 0.7, show.legend = FALSE) +
@@ -682,6 +706,8 @@ p4 <- data_pisos_train |>
   theme_minimal()
 
 grid.arrange(p1, p2, p3, p4, ncol = 2)
+
+## 9.4. Top variables categóricas por correlación con precio
 
 top_categorical_vars <- c(
   "OverallQual",
@@ -736,30 +762,37 @@ ggplot(
     panel.spacing = unit(1, "lines")
   )
 
-##TODO: PENDIENTE HACER UN ANALISIS EN PROFUNDIDAD DE LAS VARIABLES CATEGORICAS (TODAS) PARA DESCARTAR LAS REDUNDANTES
-##TODO: PENDIENTE HACER UN ANALISIS EN PROFUNDIDAD DE LAS VARIABLES NUMÉRICAS (TODAS) PARA DESCARTAR LAS REDUNDANTES
+# -----------------------------------------------------------------
+# SECCIÓN 10: ELIMINACIÓN DE VARIABLES CATEGÓRICAS REDUNDANTES ------
+# -----------------------------------------------------------------
 
-## Eliminación de variables categóricas redundantes
+## 10.1. Identificar y eliminar variables altamente correlacionadas
+
 variables_categoricas_redundantes <- c("GarageCond", "ExterCond", "Exterior2nd")
 data_pisos_train <- data_pisos_train %>%
   select(-all_of(variables_categoricas_redundantes))
 data_pisos_test <- data_pisos_test %>%
   select(-all_of(variables_categoricas_redundantes))
 
-## --------------------------------------- Identificación de missings ----------------------------------------------
+
+# -----------------------------------------------------------------
+# SECCIÓN 11: ANÁLISIS DETALLADO DE VALORES FALTANTES ------
+# -----------------------------------------------------------------
+
+## 11.1. Visualización general de missings
 plot_missing(data_pisos_train)
 
-# 1. Overall missing pattern visualization
+# Patrón de valores faltantes
 vis_miss(data_pisos_train, warn_large_data = FALSE) +
   labs(
     title = "Missing Value Pattern in Training Set",
     subtitle = "Visual overview of missing data across all variables"
   )
 
-# 2. Missing pattern intersections (co-occurrence of NAs)
+# Intersecciones de patrones de faltantes
 gg_miss_upset(data_pisos_train, nsets = 5, nintersects = 10)
 
-# 3. LotFrontage missingness by Neighborhood
+# LotFrontage missingness by Neighborhood
 data_pisos_train |>
   mutate(LotFrontage_missing = is.na(LotFrontage)) |>
   ggplot(aes(x = Neighborhood, fill = LotFrontage_missing)) +
@@ -779,7 +812,7 @@ data_pisos_train |>
   theme_minimal()
 
 
-# 4. LotFrontage missingness by LotShape
+# LotFrontage missingness by LotShape
 data_pisos_train |>
   mutate(LotFrontage_missing = is.na(LotFrontage)) |>
   count(LotShape, LotFrontage_missing) |>
@@ -806,7 +839,7 @@ data_pisos_train |>
   ) +
   theme_minimal()
 
-# 5. LotArea distribution by LotFrontage missingness
+# LotArea distribution by LotFrontage missingness
 data_pisos_train |>
   mutate(
     LotFrontage_status = ifelse(is.na(LotFrontage), "Missing", "Present")
@@ -825,7 +858,7 @@ data_pisos_train |>
   theme(legend.position = "none")
 
 
-# 6. SalePrice distribution by LotFrontage missingness
+# SalePrice distribution by LotFrontage missingness
 data_pisos_train |>
   mutate(
     LotFrontage_status = ifelse(is.na(LotFrontage), "Missing", "Present")
@@ -857,8 +890,9 @@ data_pisos_train |>
 
 
 ## ----------------------------------------------------------------------------------------------------------
-## ----------------------------------------- MISSING IMPUTATION----------------------------------------------
+# SECCIÓN 12: IMPUTACION DE MISSINGS ------
 ## ----------------------------------------------------------------------------------------------------------
+
 # Step 1: Preparar datos combinados
 # Mantener SalePrice en train para que ayude a imputar, pero asegurar que en test sea NA
 data_full_imputation <- bind_rows(
@@ -913,8 +947,9 @@ sum(is.na(data_pisos_train_imputed))
 sum(is.na(data_pisos_test_imputed))
 
 ## ----------------------------------------------------------------------------------------------------------
-## ----------------------- DIAGNÓSTICO DE INFLUENTIAL POINTS --------------------------------
+# SECCIÓN 13: DIAGNÓSTICO DE INFLUENTIAL POINTS ------
 ## ----------------------------------------------------------------------------------------------------------
+
 # Ajustar modelo preliminar para diagnóstico (usando solo numéricas)
 numeric_data_diag <- data_pisos_train_imputed %>% select(where(is.numeric))
 model_diag <- lm(SalePrice ~ ., data = numeric_data_diag)
@@ -972,7 +1007,7 @@ outliers_to_remove <- diagnostics %>%
 print(outliers_to_remove)
 
 ## ----------------------------------------------------------------------------------------------------------
-## ----------------------- VALIDATION: BASE R DIAGNOSTICS ------------------------------
+# SECCIÓN 14: VALIDATION: BASE R DIAGNOSTICS ------
 ## ----------------------------------------------------------------------------------------------------------
 # We perform a double-check using the standard R functions described in class to ensure 
 # our previous filtering makes sense.
@@ -1026,7 +1061,7 @@ if(length(ids_final_removal) > 0) {
 }
 
 ## ----------------------------------------------------------------------------------------------------------
-## ----------------------- NORMALITY ANALYSIS (TARGET VARIABLE) -------------------------------------
+# SECCIÓN 15: NORMALITY ANALYSIS (TARGET VARIABLE) ------
 ## ----------------------------------------------------------------------------------------------------------
 
 # ESTO LO HACEMOS DOS VECES, MARK LO HACE EN LAS SECCIONES INICIALES
@@ -1055,7 +1090,7 @@ if(abs(skew_val) > 0.75) {
 }
 
 ## ----------------------------------------------------------------------------------------------------------
-## ----------------------- ANÁLISIS CATEGÓRICO (V de Cramer) ------------------------------
+# SECCION 16: ANÁLISIS CATEGÓRICO (V de Cramer) ------------------------------
 ## ----------------------------------------------------------------------------------------------------------
 
 # Preparación de variables (Factores con >1 nivel)
@@ -1091,7 +1126,7 @@ redundant_idx <- which(cramer_matrix > 0.8 & cramer_matrix < 1, arr.ind = TRUE)
 data_pisos_train_clean <- data_pisos_train_clean %>% select(-MSSubClass)
 
 ## ----------------------------------------------------------------------------------------------------------
-## ----------------------- RELEVANCIA CATEGÓRICAS (Kruskal-Wallis) ----------------------------------
+# SECCION 17: RELEVANCIA CATEGÓRICAS (Kruskal-Wallis) ----------------------------------
 ## ----------------------------------------------------------------------------------------------------------
 # Definir Target y Variables
 target_col <- "log_SalePrice"
@@ -1126,7 +1161,7 @@ print(vars_irrelevant)
 
 
 ## ----------------------------------------------------------------------------------------------------------
-## ------------------ ANÁLISIS DE CORRELACIONES Y MULTICOLINEALIDAD (VARIABLES NUMERICAS) -------------------
+# SECCION 18: ANÁLISIS DE CORRELACIONES Y MULTICOLINEALIDAD (VARIABLES NUMERICAS) -------------------
 ## ----------------------------------------------------------------------------------------------------------
 
 # Correlation plot
@@ -1241,7 +1276,7 @@ print(tail(round(eigen_val, 5), 5))
 
 
 ## ----------------------------------------------------------------------------------------------------------
-## ------------------------------------------- PCA EXPLORATORIO ---------------------------------------------
+# SECCION 19: PCA EXPLORATORIO ---------------------------------------------
 ## ----------------------------------------------------------------------------------------------------------
 
 # 1. Preparación correcta de los datos
@@ -1526,389 +1561,530 @@ rotated_solutions
 # ...existing code...
 
 ## ----------------------------------------------------------------------------------------------------------
-## -------------------------------------------------- MODELADO ----------------------------------------------
+# SECCION 20: MODELADO ----------------------------------------------
 ## ----------------------------------------------------------------------------------------------------------
 
+# -----------------------------------------------------------------------------
+# MODELO 1: LASSO REGRESSION (L1 Regularization)
+# -----------------------------------------------------------------------------
+if (!require("glmnet")) install.packages("glmnet")
+library(glmnet)
+library(dplyr)
 
-pacman::p_load(dplyr, tibble, glmnet, MASS, car, readr)
+# 1. PREPARACIÓN DE DATOS (MATRICES)
+# -----------------------------------------------------------------------------
+# Definimos variable respuesta y predictores
+# Eliminamos Id y las versiones originales de SalePrice para evitar data leakage
+target_var <- "log_SalePrice"
+unused_vars <- c("Id", "SalePrice", "log_SalePrice")
 
-# 0) Target: trabajamos con log(SalePrice)
-target_used <- "log_SalePrice"
-if (!target_used %in% names(data_pisos_train_clean)) {
-  data_pisos_train_clean <- data_pisos_train_clean |>
-    dplyr::mutate(log_SalePrice = log(SalePrice))
-}
+# Creamos la partición de Validación (como pide el PDF para el benchmark)
+set.seed(123) # Semilla para reproducibilidad
+train_index <- createDataPartition(data_pisos_train_clean[[target_var]], p = 0.8, list = FALSE)
 
-rmse <- function(a, b) sqrt(mean((a - b)^2))
+data_train <- data_pisos_train_clean[train_index, ]
+data_val   <- data_pisos_train_clean[-train_index, ]
 
-# 1) LASSO (solo para descartar variables)
-model_df <- data_pisos_train_clean |>
-  dplyr::mutate(y = log(SalePrice)) |>
-  dplyr::select(-SalePrice, -log_SalePrice, -bc_SalePrice)
+# glmnet necesita matrices numéricas, 'model.matrix' convierte factores a dummies automáticamente
+# [,-1] elimina la columna del intercepto que model.matrix crea por defecto
+X_train_mat <- model.matrix(as.formula(paste(target_var, "~ .")), 
+                            data = data_train[, !names(data_train) %in% setdiff(unused_vars, target_var)])[, -1]
+y_train_vec <- data_train[[target_var]]
 
-X <- model.matrix(y ~ . - 1, data = model_df |> dplyr::select(-Id))
-y <- model_df$y
+X_val_mat   <- model.matrix(as.formula(paste(target_var, "~ .")), 
+                            data = data_val[, !names(data_val) %in% setdiff(unused_vars, target_var)])[, -1]
+y_val_vec   <- data_val[[target_var]]
 
+# 2. ENTRENAMIENTO CON CROSS-VALIDATION
+# -----------------------------------------------------------------------------
+# alpha = 1 significa LASSO
+# alpha = 0 significa RIDGE
 set.seed(123)
 cv_lasso <- cv.glmnet(
-  x = X, y = y,
-  alpha = 1, family = "gaussian",
-  nfolds = 10, standardize = TRUE
+  x = X_train_mat, 
+  y = y_train_vec, 
+  alpha = 1,             # LASSO puro
+  family = "gaussian",   # Regresión lineal
+  nfolds = 10,           # 10-fold CV
+  standardize = TRUE     # Importante: estandarizar variables para penalización justa
 )
 
-lasso_fit_1se <- glmnet(
-  x = X, y = y,
-  alpha = 1, family = "gaussian",
-  lambda = cv_lasso$lambda.1se, standardize = TRUE
-)
+# 3. RESULTADOS Y SELECCIÓN DE LAMBDA
+# -----------------------------------------------------------------------------
+# Lambda.min: el que minimiza el error en CV
+# Lambda.1se: el modelo más sencillo (más penalizado) dentro de 1 error estándar del mínimo (más robusto)
+best_lambda <- cv_lasso$lambda.1se 
 
-coef_1se <- coef(lasso_fit_1se)
-selected_1se <- tibble::tibble(
-  feature = rownames(coef_1se),
-  coef = as.numeric(coef_1se)
-) |>
-  dplyr::filter(feature != "(Intercept)", coef != 0)
+print(paste("Mejor Lambda (1se):", round(best_lambda, 5)))
 
-feature_map <- tibble::tibble(feature = colnames(X)) |>
-  dplyr::mutate(variable_original = sub(":.*$", "", feature))
+# Gráfico de la evolución de coeficientes vs Lambda
+plot(cv_lasso) 
+title("LASSO: Mean-Squared Error vs Log(Lambda)", line = 2.5)
 
-vars_keep_1se <- feature_map |>
-  dplyr::filter(feature %in% selected_1se$feature) |>
-  dplyr::distinct(variable_original) |>
-  dplyr::pull(variable_original)
+# 4. EVALUACIÓN EN SET DE VALIDACIÓN
+# -----------------------------------------------------------------------------
+preds_lasso <- predict(cv_lasso, newx = X_val_mat, s = "lambda.1se")
 
-lasso_results <- list(
-  target = target_used,
-  lambda_1se = cv_lasso$lambda.1se,
-  n_keep = length(vars_keep_1se),
-  vars_keep = vars_keep_1se
-)
+# Calculamos RMSE (Root Mean Squared Error)
+rmse_lasso <- sqrt(mean((preds_lasso - y_val_vec)^2))
 
-# 2) Dataset post-LASSO (para comparar modelos)
-train_reduced <- data_pisos_train_clean |>
-  dplyr::select(dplyr::any_of(c("Id", "SalePrice", "log_SalePrice", vars_keep_1se))) |>
-  dplyr::mutate(y = log_SalePrice)
+print(paste("RMSE Lasso (Validation Set):", round(rmse_lasso, 4)))
 
-# Split fijo para comparación 
-set.seed(123)
-idx_tr <- sample(seq_len(nrow(train_reduced)), size = floor(0.8 * nrow(train_reduced)))
-train_tr <- train_reduced[idx_tr, ]
-train_va <- train_reduced[-idx_tr, ]
+# 5. EXTRACCIÓN DE VARIABLES (FEATURE SELECTION)
+# -----------------------------------------------------------------------------
+# Extraemos coeficientes y quitamos los que son CERO (los eliminados por Lasso)
+coef_matrix <- coef(cv_lasso, s = "lambda.1se")
+df_coefs <- data.frame(
+  feature = rownames(coef_matrix), 
+  coefficient = as.numeric(coef_matrix)
+) %>%
+  filter(coefficient != 0 & feature != "(Intercept)") %>%
+  arrange(desc(abs(coefficient)))
 
-train_tr2 <- train_tr |> dplyr::mutate(Id = as.character(Id)) |> dplyr::select(-Id)
-train_va2 <- train_va |> dplyr::mutate(Id = as.character(Id)) |> dplyr::select(-Id)
+print("Top 10 variables más importantes según Lasso:")
+print(head(df_coefs, 10))
 
-# 3) OLS base (post-LASSO) + diagnósticos básicos
-ols_base <- lm(y ~ . - SalePrice - log_SalePrice, data = train_tr2)
-pred_ols <- predict(ols_base, newdata = train_va2)
-rmse_ols <- rmse(train_va$y, pred_ols)
+print(paste("Número total de variables seleccionadas:", nrow(df_coefs)))
 
-vif_vals <- car::vif(ols_base)
-cond_num <- kappa(scale(model.matrix(ols_base)[, -1, drop = FALSE]))
+# -----------------------------------------------------------------------------
+# INTERPRETACIÓN RESULTADOS LASSO
+# -----------------------------------------------------------------------------
+# 1. Rendimiento (RMSE): 0.109 (Escala Logarítmica)
+#    - El modelo tiene un error medio aproximado del ~11% en el precio de venta.
+#    - Es un benchmark muy competitivo para empezar.
+#
+# 2. Selección de Variables:
+#    - Lasso ha seleccionado 85 variables relevantes, reduciendo la dimensionalidad
+#      y eliminando ruido. Esto cumple con el objetivo de identificar variables 
+#      redundantes .
+#
+# 3. Drivers Principales (Top 10):
+#    - Calidad y Condición: Las variables 'OverallQual' y 'OverallCond' dominan.
+#      Niveles bajos (Cond3, Cond2) penalizan fuertemente el precio (coef negativos),
+#      mientras que calidades altas (Qual9, Qual10) lo disparan.
+#    - Ubicación: 'Crawford' aparece como un barrio con premium positivo significativo.
+#    - Garage: 'GarageQualEx' es un diferenciador clave de valor.
 
-diag_summary <- list(
-  rmse_ols = rmse_ols,
-  vif_top = sort(vif_vals, decreasing = TRUE) |> head(10),
-  condition_number = cond_num
-)
 
-# 4) Stepwise AIC (post-LASSO) y RMSE en validación
-ols_aic <- MASS::stepAIC(ols_base, direction = "both", trace = FALSE)
-pred_aic <- predict(ols_aic, newdata = train_va2)
-rmse_aic <- rmse(train_va$y, pred_aic)
+# -----------------------------------------------------------------------------
+# MODELO 2: RIDGE REGRESSION (L2 Regularization)
+# -----------------------------------------------------------------------------
+# Nota: Usamos las mismas matrices X_train_mat, y_train_vec creadas en Lasso
 
-# 5) Stepwise BIC (post-LASSO) y RMSE en validación
-ols_bic <- step(ols_base, direction = "both", k = log(nrow(train_tr2)), trace = 0)
-pred_bic <- predict(ols_bic, newdata = train_va2)
-rmse_bic <- rmse(train_va$y, pred_bic)
-
-# 6) Ridge (post-LASSO) y RMSE comparable
-x_tr <- model.matrix(y ~ . - 1 - Id - SalePrice - log_SalePrice, data = train_tr)
-x_va <- model.matrix(y ~ . - 1 - Id - SalePrice - log_SalePrice, data = train_va)
-
+# 1. ENTRENAMIENTO (Alpha = 0)
+# -----------------------------------------------------------------------------
 set.seed(123)
 cv_ridge <- cv.glmnet(
-  x = x_tr, y = train_tr$y,
-  alpha = 0, family = "gaussian",
-  nfolds = 10, standardize = TRUE
+  x = X_train_mat, 
+  y = y_train_vec, 
+  alpha = 0,             # RIDGE puro
+  family = "gaussian", 
+  nfolds = 10,
+  standardize = TRUE
 )
 
-ridge_fit <- glmnet(
-  x = x_tr, y = train_tr$y,
-  alpha = 0, family = "gaussian",
-  lambda = cv_ridge$lambda.min, standardize = TRUE
-)
+# 2. SELECCIÓN DE LAMBDA
+# -----------------------------------------------------------------------------
+best_lambda_ridge <- cv_ridge$lambda.min 
+# En Ridge solemos usar lambda.min para maximizar predicción, 
+# ya que no buscamos eliminar variables como en Lasso.
 
-pred_ridge <- as.numeric(predict(ridge_fit, newx = x_va))
-rmse_ridge <- rmse(train_va$y, pred_ridge)
+print(paste("Mejor Lambda Ridge (min):", round(best_lambda_ridge, 5)))
 
-# 7) Tabla de comparación (storytelling)
-results_compare <- tibble::tibble(
-  model = c("OLS_postLASSO", "OLS_stepAIC", "OLS_stepBIC", "Ridge_CV"),
-  rmse = c(rmse_ols, rmse_aic, rmse_bic, rmse_ridge)
-) |>
-  dplyr::arrange(rmse)
+# Gráfico de evolución
+plot(cv_ridge)
+title("RIDGE: MSE vs Log(Lambda)", line = 2.5)
 
-# Decisión automática: eligir el menor RMSE; si empatan, prioriza OLS_base por simplicidad
-best_model_name <- results_compare$model[1]
-ols_selected <- dplyr::case_when(
-  best_model_name == "OLS_stepAIC" ~ "AIC",
-  best_model_name == "OLS_stepBIC" ~ "BIC",
-  TRUE ~ "BASE"
-)
+# 3. EVALUACIÓN (VALIDATION SET)
+# -----------------------------------------------------------------------------
+preds_ridge <- predict(cv_ridge, newx = X_val_mat, s = "lambda.min")
+rmse_ridge <- sqrt(mean((preds_ridge - y_val_vec)^2))
 
-# 8) MODELO FINAL (entrenar en TODO TRAIN limpio, post-LASSO) + predicción TEST + export
+print(paste("RMSE Ridge (Validation Set):", round(rmse_ridge, 4)))
 
-# 0) Limpiar lista de variables seleccionadas (evitar target/leakage)
-vars_keep_final <- setdiff(vars_keep_1se, c("SalePrice", "log_SalePrice", "bc_SalePrice"))
+# 4. ANÁLISIS DE COEFICIENTES
+# -----------------------------------------------------------------------------
+# En Ridge NO habrá coeficientes a cero, pero veremos cuáles tienen mayor peso
+coef_ridge <- coef(cv_ridge, s = "lambda.min")
+df_coefs_ridge <- data.frame(
+  feature = rownames(coef_ridge), 
+  coefficient = as.numeric(coef_ridge)
+) %>%
+  filter(feature != "(Intercept)") %>%
+  arrange(desc(abs(coefficient)))
 
-# 1) TRAIN final (log) con predictores limpios
-train_final_model_log <- data_pisos_train_clean |>
-  dplyr::select(dplyr::any_of(vars_keep_final), SalePrice) |>
-  dplyr::mutate(y = log(SalePrice)) |>
-  dplyr::select(-SalePrice)
+print("Top 10 variables más importantes según Ridge:")
+print(head(df_coefs_ridge, 10))
 
-ols_final_log <- lm(y ~ ., data = train_final_model_log)
+# Comparativa rápida en consola
+print(paste("Diferencia RMSE (Ridge - Lasso):", round(rmse_ridge - rmse_lasso, 5)))
+# Si es negativo, Ridge gana. Si es positivo, Lasso gana.
 
-names(model.frame(ols_final_log))
+# -----------------------------------------------------------------------------
+# INTERPRETACIÓN RESULTADOS RIDGE
+# -----------------------------------------------------------------------------
+# 1. Rendimiento (RMSE): 0.1114
+#    - El error es ligeramente SUPERIOR al de Lasso (+0.0024).
+#    - En este caso, Ridge (que mantiene todas las variables) funciona peor que 
+#      Lasso (que eliminó variables). 
+#
+# 2. Conclusión del dato:
+#    - Esto sugiere que la "escasez" (sparsity) es importante: es mejor tener 
+#      pocas variables muy potentes que muchas variables aportando poco ruido.
+#
+# 3. Coeficientes:
+#    - Ridge penaliza pero no elimina. Vemos que 'OverallQual' y 'GarageQual'
+#      siguen siendo los reyes del precio, manteniendo la consistencia con Lasso.
 
-# 2) TEST con los mismos predictores
-test_reduced_log <- data_pisos_test_imputed |>
-  dplyr::select(dplyr::any_of(vars_keep_final))
 
-pred_log_test <- as.numeric(predict(ols_final_log, newdata = test_reduced_log))
 
-export_test <- tibble::tibble(
-  `Predicted.price` = exp(pred_log_test)
-)
+# -----------------------------------------------------------------------------
+# MODELO 3: ELASTIC NET (Mezcla Lasso + Ridge)
+# -----------------------------------------------------------------------------
+# ElasticNet requiere optimizar DOS parámetros:
+# 1. Lambda (penalización) -> glmnet lo hace solo con cv.glmnet
+# 2. Alpha (mezcla): 0 = Ridge, 1 = Lasso. Nosotros debemos buscar el mejor alpha.
 
-# readr::write_csv(export_test, "results/predicted_price_test.csv")
-# export_test
+# Definimos una rejilla de alphas para probar (ej: 0.1, 0.2 ... 0.9)
+alpha_grid <- seq(0.1, 0.9, by = 0.1)
 
-# Comprobación 1: nº de filas (debe ser igual)
-c(
-  n_test_inicial = nrow(data_pisos_test),
-  n_test_imputed = nrow(data_pisos_test_imputed),
-  n_export = nrow(export_test)
-)
+# Variables para guardar el mejor resultado encontrado
+best_enet_rmse <- Inf
+best_enet_model <- NULL
+best_enet_alpha <- 0
 
-# Comprobación 2: no hay NA en la predicción
-sum(is.na(export_test$`Predicted.price`))
+print("Iniciando búsqueda de hiperparámetros para ElasticNet...")
 
-# Comprobación 3 (recomendada): mismo Id y mismo orden (si export_test NO tiene Id, lo construimos)
-if ("Id" %in% names(data_pisos_test)) {
-  export_check <- tibble::tibble(
-    Id = data_pisos_test$Id,
-    `Predicted.price` = export_test$`Predicted.price`
+set.seed(123)
+for (i in alpha_grid) {
+  
+  # Entrenamos con Cross-Validation para este alpha específico
+  cv_fit <- cv.glmnet(
+    x = X_train_mat, 
+    y = y_train_vec, 
+    alpha = i, 
+    family = "gaussian",
+    nfolds = 10,
+    standardize = TRUE
   )
-
-  list(
-    same_ids = identical(as.character(export_check$Id), as.character(data_pisos_test$Id)),
-    any_duplicated_ids = anyDuplicated(export_check$Id),
-    n_export_check = nrow(export_check)
-  )
+  
+  # Predecimos en validación
+  pred_val <- predict(cv_fit, newx = X_val_mat, s = "lambda.1se")
+  rmse_val <- sqrt(mean((pred_val - y_val_vec)^2))
+  
+  # Si este alpha mejora lo que teníamos, lo guardamos como el "campeón"
+  if (rmse_val < best_enet_rmse) {
+    best_enet_rmse <- rmse_val
+    best_enet_model <- cv_fit
+    best_enet_alpha <- i
+  }
 }
 
-# TOPP
+# 3. RESULTADOS ELASTIC NET
+# -----------------------------------------------------------------------------
+print(paste("Mejor Alpha encontrado:", best_enet_alpha))
+print(paste("RMSE ElasticNet (Validation):", round(best_enet_rmse, 4)))
 
-# Queda Godness of fit y las questions extras 
+# Comparamos con los anteriores
+print(paste("Comparativa RMSE:"))
+print(paste("Lasso:", round(rmse_lasso, 4)))
+print(paste("Ridge:", round(rmse_ridge, 4)))
+print(paste("ElasticNet:", round(best_enet_rmse, 4)))
+
+# Si ElasticNet gana, ¿qué variables seleccionó?
+coef_enet <- coef(best_enet_model, s = "lambda.1se")
+df_coefs_enet <- data.frame(
+  feature = rownames(coef_enet), 
+  coefficient = as.numeric(coef_enet)
+) %>%
+  filter(coefficient != 0 & feature != "(Intercept)") %>%
+  arrange(desc(abs(coefficient)))
+
+print(paste("Variables seleccionadas por el mejor ElasticNet:", nrow(df_coefs_enet)))
+print(head(df_coefs_enet, 5))
 
 
-## ----------------------------------------------------------------------------------------------------------
-## --------------------------- GOODNESS OF FIT (IN-SAMPLE vs OUT-OF-SAMPLE) --------------------------------
-## ----------------------------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# INTERPRETACIÓN RESULTADOS ELASTIC NET
+# -----------------------------------------------------------------------------
+# 1. Rendimiento (RMSE): 0.1084 (GANADOR ACTUAL)
+#    - Ha superado tanto a Lasso (0.1090) como a Ridge (0.1114).
+#    - Alpha = 0.4 indica que el modelo óptimo es un híbrido: 
+#      40% Lasso (selección) + 60% Ridge (contracción).
+#
+# 2. Selección de Variables:
+#    - Se ha quedado con 86 variables. Curiosamente, casi el mismo número que Lasso (85).
+#    - Esto confirma firmemente que el "núcleo duro" de información para predecir 
+#      precios en Ames reside en unas ~85 variables transformadas.
+#
+# 3. Conclusión de Negocio:
+#    - Si tuvieras que poner un modelo en producción hoy, este sería el elegido.
+#    - Combina la capacidad de ignorar características irrelevantes con la robustez
+#      frente a la multicolinealidad de las variables de calidad (OverallQual/Cond).
 
-rmse <- function(a, b) sqrt(mean((a - b)^2))
 
-# Asegurar predictores finales (sin targets/leakage)
-vars_keep_final <- setdiff(vars_keep_1se, c("SalePrice", "log_SalePrice", "bc_SalePrice"))
 
-# Dataset modelado final (log)
-df_model <- data_pisos_train_clean |>
-  dplyr::select(dplyr::any_of(vars_keep_final), SalePrice) |>
-  dplyr::mutate(y = log(SalePrice)) |>
-  dplyr::select(-SalePrice)
+# -----------------------------------------------------------------------------
+# MODELO 4: PCA REGRESSION (PCR) - VERSIÓN ROBUSTA CON CARET
+# -----------------------------------------------------------------------------
+library(caret) 
 
-# 1) In-sample: entreno en todo TRAIN y evalúo en TRAIN (log RMSE)
-ols_in <- lm(y ~ ., data = df_model)
-pred_in <- as.numeric(predict(ols_in, newdata = df_model))
-rmse_in_log <- rmse(df_model$y, pred_in)
 
-# 2) Out-of-sample: split fijo 80/20 + RMSE (log)
+# Definimos variables
+target_var <- "log_SalePrice"
+unused_vars <- c("Id", "SalePrice", "log_SalePrice")
+
+# Aseguramos partición (semilla 123 para consistencia)
 set.seed(123)
-idx_tr <- sample(seq_len(nrow(df_model)), size = floor(0.8 * nrow(df_model)))
-tr <- df_model[idx_tr, , drop = FALSE]
-va <- df_model[-idx_tr, , drop = FALSE]
+train_index <- createDataPartition(data_pisos_train_clean[[target_var]], p = 0.8, list = FALSE)
+data_train <- data_pisos_train_clean[train_index, ]
+data_val   <- data_pisos_train_clean[-train_index, ]
 
-ols_oos <- lm(y ~ ., data = tr)
-pred_oos <- as.numeric(predict(ols_oos, newdata = va))
-rmse_oos_log <- rmse(va$y, pred_oos)
+# Creamos matrices numéricas (dummies)
+X_train_mat <- model.matrix(as.formula(paste(target_var, "~ .")), 
+                            data = data_train[, !names(data_train) %in% setdiff(unused_vars, target_var)])[, -1]
+y_train_vec <- data_train[[target_var]]
 
-# Si quieres RMSE en euros también (opcional, por si te lo piden):
-rmse_in_eur <- rmse(exp(df_model$y), exp(pred_in))
-rmse_oos_eur <- rmse(exp(va$y), exp(pred_oos))
+X_val_mat   <- model.matrix(as.formula(paste(target_var, "~ .")), 
+                            data = data_val[, !names(data_val) %in% setdiff(unused_vars, target_var)])[, -1]
+y_val_vec   <- data_val[[target_var]]
 
-gof <- tibble::tibble(
-  metric = c("RMSE_log", "RMSE_eur"),
-  in_sample = c(rmse_in_log, rmse_in_eur),
-  out_of_sample = c(rmse_oos_log, rmse_oos_eur)
+print("2. Limpiando columnas con varianza cero (usando nearZeroVar)...")
+
+# USAMOS caret::nearZeroVar EN LUGAR DE apply
+# Esto detecta columnas con varianza cero de forma segura
+nzv_cols_indices <- nearZeroVar(X_train_mat)
+
+if(length(nzv_cols_indices) > 0) {
+  print(paste("Eliminando", length(nzv_cols_indices), "columnas constantes..."))
+  X_train_clean <- X_train_mat[, -nzv_cols_indices]
+  X_val_clean   <- X_val_mat[, -nzv_cols_indices]
+} else {
+  print("No se encontraron columnas constantes.")
+  X_train_clean <- X_train_mat
+  X_val_clean   <- X_val_mat
+}
+
+print("3. Ejecutando PCA y optimizando componentes...")
+
+# PCA sobre datos limpios
+pca_model <- prcomp(X_train_clean, center = TRUE, scale. = TRUE)
+
+# Proyectar
+X_train_pca <- pca_model$x
+X_val_pca   <- predict(pca_model, newdata = X_val_clean)
+
+# Loop para encontrar el mejor número de componentes
+# Probamos hasta 150 componentes (o el máximo disponible si es menor)
+max_comps <- min(150, ncol(X_train_pca))
+n_components_to_test <- seq(10, max_comps, by = 10)
+
+best_pcr_rmse <- Inf
+best_n_comp   <- 0
+results_pcr <- data.frame(n_comp = integer(), rmse = numeric())
+
+for (k in n_components_to_test) {
+  # Crear dataset temporal con k componentes
+  train_data_k <- data.frame(y = y_train_vec, X_train_pca[, 1:k])
+  val_data_k   <- data.frame(y = y_val_vec,   X_val_pca[, 1:k])
+  
+  # Modelo lineal sobre componentes
+  lm_pcr <- lm(y ~ ., data = train_data_k)
+  preds_pcr <- predict(lm_pcr, newdata = val_data_k)
+  
+  # RMSE
+  rmse_k <- sqrt(mean((preds_pcr - y_val_vec)^2))
+  results_pcr <- rbind(results_pcr, data.frame(n_comp = k, rmse = rmse_k))
+  
+  if (rmse_k < best_pcr_rmse) {
+    best_pcr_rmse <- rmse_k
+    best_n_comp <- k
+  }
+}
+
+# 4. RESULTADOS FINALES PCR
+# -----------------------------------------------------------------------------
+print(paste("Mejor número de componentes:", best_n_comp))
+print(paste("RMSE PCR (Validation):", round(best_pcr_rmse, 4)))
+
+# Gráfico
+plot(results_pcr$n_comp, results_pcr$rmse, type = "b", col = "blue", pch = 19,
+     xlab = "Nº Componentes", ylab = "RMSE", main = "PCR Performance")
+legend("topright", legend = c("PCR"), col = c("blue"), lty = 1)
+
+# -----------------------------------------------------------------------------
+# INTERPRETACIÓN RESULTADOS PCR (Principal Component Regression)
+# -----------------------------------------------------------------------------
+# 1. Rendimiento (RMSE): 0.1234
+#    - Este modelo NO ha logrado superar a ElasticNet (0.1084) ni a Lasso/Ridge.
+#    - Se sitúa como el de peor desempeño hasta el momento.
+#
+# 2. Análisis de Componentes:
+#    - El modelo necesitó 90 componentes principales para alcanzar su óptimo.
+#    - Esto indica que la información del precio está muy dispersa y no se deja
+#      comprimir fácilmente en unos pocos "super-factores" lineales sin perder
+#      poder predictivo.
+#
+# 3. ¿Por qué falló?
+#    - El PCA es "no supervisado": busca resumir varianza (X) sin mirar el precio (Y).
+#    - Es probable que los primeros componentes explicaran mucha varianza geométrica
+#      de las casas, pero que la información clave para el precio estuviera en 
+#      componentes menores que el modelo descartó o diluyó.
+
+
+# -----------------------------------------------------------------------------
+# MODELO 5: REGRESIÓN LOCAL (K-NEAREST NEIGHBORS - KNN)
+# -----------------------------------------------------------------------------
+# Nota: La función 'loess' estándar no soporta >4 variables. 
+# Usamos KNN como la implementación robusta de regresión local para alta dimensión.
+
+
+# 1. PREPARACIÓN
+# -----------------------------------------------------------------------------
+# KNN es MUY sensible a la escala (distancias). Es obligatorio centrar y escalar.
+# Usamos train() de caret que lo hace automáticamente con 'preProcess'.
+
+# Definimos la rejilla de 'k' (vecinos) a probar
+# Probamos k impares de 3 a 25
+knn_grid <- expand.grid(k = seq(3, 25, by = 2))
+
+# 2. ENTRENAMIENTO CON CROSS-VALIDATION
+# -----------------------------------------------------------------------------
+set.seed(123)
+knn_model <- train(
+  x = X_train_clean,       # Usamos la matriz limpia sin columnas constantes
+  y = y_train_vec,
+  method = "knn",
+  preProcess = c("center", "scale"), # Estandarización automática
+  tuneGrid = knn_grid,
+  trControl = trainControl(method = "cv", number = 5) # 5-fold CV interno para elegir k
 )
 
-list(
-  gof = gof,
-  n_train = nrow(df_model),
-  n_train_split = nrow(tr),
-  n_valid_split = nrow(va)
-)
+# 3. RESULTADOS
+# -----------------------------------------------------------------------------
+print(paste("Mejor K seleccionado:", knn_model$bestTune$k))
 
-## ----------------------------------------------------------------------------------------------------------
-## ---------------------- INTERPRETACIÓN: VARIABLES IMPORTANTES + PERFIL BARATO/CARO ------------------------
-## ----------------------------------------------------------------------------------------------------------
+# Gráfico de RMSE vs Vecinos (K)
+plot(knn_model)
 
-vars_keep_final <- setdiff(vars_keep_1se, c("SalePrice", "log_SalePrice", "bc_SalePrice"))
+# 4. EVALUACIÓN (VALIDATION SET)
+# -----------------------------------------------------------------------------
+# caret aplica automáticamente la media y desviación estándar de train al validation set
+preds_knn <- predict(knn_model, newdata = X_val_clean)
 
-df_int <- data_pisos_train_clean |>
-  dplyr::select(dplyr::any_of(c(vars_keep_final, "SalePrice")))
+rmse_knn <- sqrt(mean((preds_knn - y_val_vec)^2))
 
-df_model <- df_int |>
-  dplyr::mutate(y = log(SalePrice)) |>
-  dplyr::select(-SalePrice)
+print(paste("RMSE KNN (Validation):", round(rmse_knn, 4)))
 
-ols_final_log <- lm(y ~ ., data = df_model)
+# 5. ACTUALIZACIÓN DE TABLA DE LÍDERES
+# -----------------------------------------------------------------------------
+print("--- TABLA DE LÍDERES (RMSE) ---")
+print(paste("1. ElasticNet:", round(best_enet_rmse, 4)))
+print(paste("2. Lasso:     ", round(rmse_lasso, 4)))
+print(paste("3. Ridge:     ", round(rmse_ridge, 4)))
+print(paste("4. KNN:       ", round(rmse_knn, 4)))
+print(paste("5. PCR:       ", round(best_pcr_rmse, 4)))
 
-coef_table <- broom::tidy(ols_final_log) |>
-  dplyr::filter(term != "(Intercept)") |>
-  dplyr::mutate(abs_t = abs(statistic)) |>
-  dplyr::arrange(dplyr::desc(abs_t))
 
-top_terms <- coef_table |> dplyr::slice(1:10)
+# -----------------------------------------------------------------------------
+# INTERPRETACIÓN RESULTADOS KNN (Regresión Local)
+# -----------------------------------------------------------------------------
+# 1. Rendimiento (RMSE): 0.174 (EL PEOR)
+#    - El error es significativamente más alto que los modelos lineales (~0.108).
+#    - KNN ha fallado estrepitosamente.
+#
+# 2. La Maldición de la Dimensionalidad:
+#    - KNN basa sus predicciones en la distancia euclídea entre casas.
+#    - Al tener ~90-200 dimensiones (variables), los puntos se vuelven "equidistantes"
+#      en el espacio, haciendo que el concepto de "vecino cercano" pierda sentido.
+#    - Además, KNN trata todas las variables por igual. El ruido de las variables
+#      irrelevantes ha ahogado la señal de las importantes.
 
-# Perfil de baratos/caros (por percentiles del SalePrice original)
-cuts <- quantile(df_int$SalePrice, probs = c(0.1, 0.9), na.rm = TRUE)
-df_profile <- df_int |>
-  dplyr::mutate(
-    bucket = dplyr::case_when(
-      SalePrice <= cuts[[1]] ~ "cheap_10pct",
-      SalePrice >= cuts[[2]] ~ "expensive_10pct",
-      TRUE ~ "middle"
-    )
-  ) |>
-  dplyr::filter(bucket != "middle")
 
-profile_summary <- df_profile |>
-  dplyr::summarize(
-    dplyr::across(where(is.numeric), median, na.rm = TRUE),
-    .by = bucket
+# -----------------------------------------------------------------------------
+# MODELO 6: GAM (Generalized Additive Models)
+# -----------------------------------------------------------------------------
+if (!require("mgcv")) install.packages("mgcv")
+library(mgcv)
+
+print("Entrenando GAM con Splines Cúbicos...")
+
+# 1. SELECCIÓN DE VARIABLES (Usando las disponibles tras limpieza)
+# -----------------------------------------------------------------------------
+data_train_gam <- data_pisos_train_clean[train_index, ]
+data_val_gam   <- data_pisos_train_clean[-train_index, ]
+
+# Fórmula corregida:
+# - Usamos 'HouseAge' en lugar de 'YearBuilt'
+# - Usamos 'YearsSinceRemod' en lugar de 'YearRemodAdd'
+# - Mantenemos 'TotalSF' (que agrupa sótanos + area habitable)
+
+gam_formula <- as.formula(
+  paste(target_var, "~",
+        "s(TotalSF, bs='cr', k=10) +",          # Tamaño total (curva)
+        "s(HouseAge, bs='cr', k=10) +",         # Antigüedad (curva)
+        "s(YearsSinceRemod, bs='cr', k=10) +",  # Tiempo desde reforma (curva)
+        "s(LotArea, bs='cr', k=10) +",          # Área parcela (curva)
+        "OverallQual +",                        # Factores lineales
+        "OverallCond +",
+        "Neighborhood +",
+        "GarageCars +",
+        "Fireplaces +",
+        "TotalBath"
   )
-
-list(
-  top_terms_by_abs_t = top_terms,
-  profile_summary_medians = profile_summary
 )
 
-## ----------------------------------------------------------------------------------------------------------
-## ------------------------------------------- CONCLUSIONES (REPORT) ----------------------------------------
-## ----------------------------------------------------------------------------------------------------------
-# GOODNESS OF FIT (RMSE)
-# - Hemos evaluado el modelo en escala log (target = log(SalePrice)) porque así lo pide el enunciado.
-# - Within-sample (in-sample): RMSE_log = 0.156
-# - Out-of-sample (split 80/20): RMSE_log = 0.165
-# - La diferencia entre ambos es pequeña (~0.009), lo que sugiere buena generalización y poco sobreajuste.
-# - En escala original (euros/dólares), los RMSE son:
-#   - RMSE_eur (in-sample)  ≈ 28,785
-#   - RMSE_eur (out-of-sample) ≈ 29,200
-# - También aquí el incremento es pequeño (~415), lo que refuerza la estabilidad del modelo.
-# - Interpretación aproximada en porcentaje (log):
-#   - Un RMSE_log ≈ 0.165 corresponde a un error multiplicativo típico de e^{0.165} - 1 ≈ 18%.
-#   - Es una aproximación útil para comunicar magnitud del error en términos relativos.
+# 2. ENTRENAMIENTO
+# -----------------------------------------------------------------------------
+set.seed(123)
+# Ajustamos el modelo GAM
+gam_model <- gam(gam_formula, data = data_train_gam, method = "REML")
 
-# VARIABLE QUE MÁS CONTRIBUYE A EXPLICAR EL PRECIO
-# - Para medir “importancia” dentro del modelo OLS en log, usamos |t-stat| de los coeficientes.
-# - La variable con mayor |t| es TotalSF (|t| = 23.6, p-value ~ 0), por lo que es el predictor más fuerte.
-# - Interpretación del coeficiente de TotalSF (0.000225) en un modelo log:
-#   - +100 sqft implica Δlog(precio) ≈ 0.000225 * 100 = 0.0225
-#   - Esto equivale a multiplicar el precio por exp(0.0225) ≈ 1.023 → ~ +2.3% por 100 sqft (ceteris paribus).
-# - Otros predictores con efectos importantes (por |t| y por interpretación económica):
-#   - GarageCars (0.078): +1 plaza ≈ +7.8% (aprox).
-#   - Fireplaces (0.0729): +1 chimenea ≈ +7.6% (aprox).
-#   - TotalBath (0.0421): +1 baño total ≈ +4.3% (aprox).
-#   - HouseAge (-0.00223): +10 años ≈ -2.2% (aprox).
-#   - YearsSinceRemod (-0.00356): +10 años desde reforma ≈ -3.5% (aprox).
+# Mostramos resumen (fíjate en la columna 'edf' de los términos suavizados)
+# edf > 1 indica no-linealidad. edf = 1 indica que es una recta.
+print(summary(gam_model))
 
-# CARACTERÍSTICAS DE LAS CASAS MÁS BARATAS VS MÁS CARAS (perfil por percentiles)
-# - Comparando medianas del 10% más barato vs 10% más caro, se observa un patrón coherente:
-#   - Casas caras (expensive_10pct) tienden a tener:
-#     - Mayor TotalSF (más superficie construida)
-#     - Más plazas de garaje (GarageCars ≈ 3 vs 1)
-#     - Más baños (TotalBath ≈ 3 vs 1)
-#     - Más chimeneas (Fireplaces ≈ 1 vs 0)
-#     - Más porches/superficie exterior (TotalPorchSF mayor)
-#     - Más fachada/parcela (LotFrontage y LotArea mayores)
-#     - Más “calidad/amenities” (p.ej. MasVnrArea ≈ 300 vs 0)
-#     - Reformas más recientes (YearsSinceRemod menor)
-#   - Casas baratas (cheap_10pct) tienden a ser:
-#     - Más pequeñas (TotalSF menor)
-#     - Con menos amenities (0 chimeneas, 1 plaza de garaje, 1 baño total)
-#     - Con menos elementos de “calidad” (MasVnrArea ~ 0)
-#     - Menos actualizadas (más años desde la reforma)
+# 3. VISUALIZACIÓN DE CURVAS
+# -----------------------------------------------------------------------------
+# Dibuja cómo afecta cada variable numérica al precio
+par(mfrow = c(2, 2))
+plot(gam_model, scheme = 1, shade = TRUE, pages = 1, all.terms = FALSE) 
+par(mfrow = c(1, 1))
 
-# CONCLUSIÓN FINAL (storytelling de selección de modelo)
-# - El modelo seleccionado es OLS_postLASSO por:
-#   - Buen equilibrio entre simplicidad e interpretación
-#   - Rendimiento competitivo y estable (RMSE out-of-sample bajo y cercano al in-sample)
-#   - Signos y magnitudes de coeficientes coherentes con intuición de mercado inmobiliario
-# - En términos prácticos, el precio se explica principalmente por:
-#   - Tamaño total (TotalSF) + amenities (garaje, baños, chimenea) + estado/recencia de reformas.## ----------------------------------------------------------------------------------------------------------
+# 4. EVALUACIÓN Y TABLA FINAL
+# -----------------------------------------------------------------------------
+preds_gam <- predict(gam_model, newdata = data_val_gam)
+rmse_gam <- sqrt(mean((preds_gam - data_val_gam[[target_var]])^2))
 
+print(paste("RMSE GAM (Validation):", round(rmse_gam, 4)))
 
-# R² y R² ajustado del modelo final
-s <- summary(ols_final_log)
+# Recopilamos todos los resultados
+results_summary <- data.frame(
+  Modelo = c("ElasticNet", "Lasso", "Ridge", "GAM (Splines)", "PCR", "KNN"),
+  RMSE = c(best_enet_rmse, rmse_lasso, rmse_ridge, rmse_gam, best_pcr_rmse, rmse_knn)
+) %>%
+  arrange(RMSE)
 
-r2 <- s$r.squared
-r2_adj <- s$adj.r.squared
+print("--- CLASIFICACIÓN FINAL DEL CONCURSO ---")
+print(results_summary)
 
-c(r2 = r2, r2_adj = r2_adj)
+# -----------------------------------------------------------------------------
+# INTERPRETACIÓN RESULTADOS GAM (GANADOR FINAL)
+# -----------------------------------------------------------------------------
+# 1. Rendimiento (RMSE): 0.1077 (MEJOR MODELO)
+#    - Ha batido a ElasticNet (0.1084), convirtiéndose en el modelo final.
+#    - R-cuadrado ajustado: 0.908 (Explica el ~91% de la variabilidad del precio).
+#
+# 2. ¿Por qué ha ganado? (No-linealidad)
+#    - Observando los 'edf' (grados de libertad efectivos):
+#      * s(YearsSinceRemod) con edf ~ 5.0 indica que la relación "antigüedad de
+#        la reforma vs precio" es altamente curva, no una línea recta.
+#      * s(TotalSF) con edf ~ 3.5 indica que el precio por pie cuadrado varía
+#        según el tamaño de la casa.
+#    - GAM ha capturado estos matices que Lasso/Ridge (lineales) se perdían.
+#
+# 3. Conclusión Final:
+#    - Seleccionamos GAM como el modelo para la predicción final.
 
 
 
-# -------------------------------
-# GOODNESS OF FIT: baseline vs modelo (mismo split)
-# -------------------------------
-
-rmse <- function(a, b) sqrt(mean((a - b)^2))
-
-# Requiere que existan: tr, va (con y = log(SalePrice)) y rmse_oos_log, rmse_oos_eur
-stopifnot(exists("tr"), exists("va"), "y" %in% names(tr), "y" %in% names(va))
-stopifnot(exists("rmse_oos_log"), exists("rmse_oos_eur"))
-
-# Baseline: predecir constante = mediana del log-precio en train
-baseline_log <- stats::median(tr$y, na.rm = TRUE)
-pred_base_log <- rep(baseline_log, nrow(va))
-
-rmse_base_log <- rmse(va$y, pred_base_log)
-rmse_base_eur <- rmse(exp(va$y), exp(pred_base_log))
-
-# Tabla comparativa
-compare_rmse <- tibble::tibble(
-  model = c("Baseline_median", "OLS_postLASSO"),
-  RMSE_log = c(rmse_base_log, rmse_oos_log),
-  RMSE_eur = c(rmse_base_eur, rmse_oos_eur)
-) |>
-  dplyr::mutate(
-    improve_log_pct = (RMSE_log[1] - RMSE_log) / RMSE_log[1],
-    improve_eur_pct = (RMSE_eur[1] - RMSE_eur) / RMSE_eur[1]
-  )
-
-compare_rmse
-
-
-# -------------------------------
-# Interpretación (Goodness of fit)
-# -------------------------------
-# - Nuestro modelo OLS_postLASSO mejora claramente al baseline naive (predecir la mediana):
-#   RMSE_log pasa de ~0.41 (baseline) a ~0.165 (modelo), es decir ~60% menos error.
-#   En euros, el RMSE baja de ~83k a ~29.2k (~65% menos).
-# - Además, la diferencia entre RMSE in-sample (~0.156) y out-of-sample (~0.165) es pequeña,
-#   lo que sugiere que el modelo generaliza razonablemente (no hay sobreajuste fuerte).
-# - Por tanto, el modelo aporta poder predictivo real frente a una referencia simple y
-#   cumple el requisito de evaluar ajuste y capacidad predictiva con un split de validación.
