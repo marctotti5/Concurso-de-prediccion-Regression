@@ -2183,7 +2183,7 @@ print(paste("RMSE Forward:", round(rmse_fwd, 4)))
 
 
 # -----------------------------------------------------------------------------
-# TABLA FINAL DE BENCHMARK
+# TABLA FINAL DE BENCHMARK - RMSE 
 # -----------------------------------------------------------------------------
 
 # Recopilamos los RMSE de validación de todos los modelos entrenados
@@ -2208,7 +2208,7 @@ print(paste("🏆 EL MODELO GANADOR ES:", ganador, "con un RMSE de", round(rmse_
 
 
 # =============================================================================
-# INTERPRETACIÓN FINAL DEL BENCHMARK
+# INTERPRETACIÓN FINAL DEL BENCHMARK - RMSE 
 # =============================================================================
 #
 # 1. EL GANADOR: GAM (Generalized Additive Model)
@@ -2246,4 +2246,155 @@ print(paste("🏆 EL MODELO GANADOR ES:", ganador, "con un RMSE de", round(rmse_
 # CONCLUSIÓN DEFINITIVA:
 # Seleccionamos el modelo GAM para generar las predicciones finales del Test Set,
 # ya que es el que minimiza el RMSE en validación.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# SECCIÓN 21: EVALUACIÓN MULTIMÉTRICA ------
+# -----------------------------------------------------------------------------
+# Objetivo: Calcular R2, R2 Ajustado, AIC, BIC y MAE para tener una visión 
+# completa de Ajuste (Train) vs Predicción (Validation).
+
+# 1. FUNCIÓN DE MÉTRICAS PERSONALIZADA
+# -----------------------------------------------------------------------------
+get_metrics <- function(actual, predicted, model_obj = NULL, model_type = "linear") {
+  # Métricas de Predicción (Validation)
+  error <- actual - predicted
+  rmse_val <- sqrt(mean(error^2))
+  mae_val  <- mean(abs(error))
+  
+  # R2 en validación (Correlación al cuadrado)
+  r2_val <- cor(actual, predicted)^2
+  
+  # Métricas de Ajuste Interno (Train) - Solo para modelos soportados
+  r2_adj <- NA
+  aic_val <- NA
+  bic_val <- NA
+  
+  if (!is.null(model_obj)) {
+    if (model_type == "lm" || model_type == "gam") {
+      # Para LM y GAM estándar
+      r2_adj <- summary(model_obj)$adj.r.squared
+      aic_val <- AIC(model_obj)
+      bic_val <- BIC(model_obj)
+    } else if (model_type == "glmnet") {
+      # Para Lasso/Ridge/ElasticNet: El % Devianza explicado es el proxy del R2
+      r2_adj <- model_obj$glmnet.fit$dev.ratio[which(model_obj$glmnet.fit$lambda == model_obj$lambda.1se)]
+      # AIC/BIC no son directamente comparables con LM, los dejamos en NA o aproximados
+    }
+  }
+  
+  return(c(RMSE = rmse_val, MAE = mae_val, R2_Val = r2_val, R2_Adj_Train = r2_adj, AIC = aic_val))
+}
+
+print("Calculando métricas extendidas para todos los modelos...")
+
+# 2. CALCULAR MÉTRICAS PARA CADA MODELO
+# -----------------------------------------------------------------------------
+# Aseguramos que tenemos las predicciones calculadas. Si faltan, re-ejecuta los bloques anteriores.
+# Usamos 'y_val_vec' o 'data_val_lm[[target_var]]' como vector real.
+real_val <- data_val_lm[[target_var]]
+
+# A) GAM (Ganador)
+m_gam <- get_metrics(real_val, preds_gam, gam_model, "gam")
+
+# B) ElasticNet
+# Nota: Para glmnet necesitamos el objeto cv_fit (best_enet_model)
+m_enet <- get_metrics(real_val, predict(best_enet_model, newx = X_val_mat, s = "lambda.1se"), best_enet_model, "glmnet")
+
+# C) Lasso
+m_lasso <- get_metrics(real_val, preds_lasso, cv_lasso, "glmnet")
+
+# D) Ridge
+m_ridge <- get_metrics(real_val, preds_ridge, cv_ridge, "glmnet")
+
+# E) LM Backward
+m_back <- get_metrics(real_val, preds_back, model_backward, "lm")
+
+# F) LM Forward
+m_fwd <- get_metrics(real_val, preds_fwd, model_forward, "lm")
+
+# G) PCR (No tiene AIC estándar comparable fácilmente, solo validación)
+m_pcr <- get_metrics(real_val, preds_pcr, NULL, "other")
+
+# H) KNN (No paramétrico, sin AIC/R2_adj)
+m_knn <- get_metrics(real_val, preds_knn, NULL, "other")
+
+# 3. CONSOLIDAR LA SUPER TABLA
+# -----------------------------------------------------------------------------
+final_metrics_df <- rbind(
+  GAM = m_gam,
+  ElasticNet = m_enet,
+  Lasso = m_lasso,
+  Ridge = m_ridge,
+  LM_Backward = m_back,
+  LM_Forward = m_fwd,
+  PCR = m_pcr,
+  KNN = m_knn
+) %>%
+  as.data.frame() %>%
+  rownames_to_column("Modelo") %>%
+  arrange(RMSE) %>%
+  mutate(
+    # Formateo bonito para la consola
+    RMSE = round(RMSE, 4),
+    MAE  = round(MAE, 4),
+    R2_Val = round(R2_Val, 3) * 100, # En porcentaje
+    R2_Adj_Train = round(R2_Adj_Train, 3) * 100,
+    AIC = round(AIC, 1)
+  )
+
+names(final_metrics_df) <- c("Modelo", "RMSE (Val)", "MAE (Val)", "R2 Valid (%)", "R2 Adj Train (%)", "AIC (Train)")
+
+print("--- SUPER TABLA FINAL DE COMPARACIÓN ---")
+print(final_metrics_df)
+
+# 4. EXPORTAR TABLA (Opcional, para el informe)
+# -----------------------------------------------------------------------------
+# write.csv(final_metrics_df, "tabla_metricas_final.csv", row.names = FALSE)
+
+
+# =============================================================================
+# INTERPRETACION - MULTIMÉTRICA
+# =============================================================================
+#
+# 1. EL GANADOR: GAM (Generalized Additive Model) con Splines
+# -----------------------------------------------------------------------------
+# - Rendimiento: RMSE = 0.1077 | MAE = 0.0811 | R² Valid = 93.0%
+# - Por qué ganó: El mercado inmobiliario no es perfectamente lineal. El GAM logró
+#   capturar los "rendimientos decrecientes" (ej. añadir metros a una casa ya gigante
+#   aporta menos valor que a una pequeña) mediante curvas suaves (splines) en 
+#   variables clave como 'TotalSF' y 'YearsSinceRemod'.
+# - Conclusión: Es el modelo que mejor generaliza (menor error en validación).
+#
+# 2. LOS FINALISTAS: Regularización (ElasticNet y Lasso)
+# -----------------------------------------------------------------------------
+# - Rendimiento: RMSE ~ 0.1084 | R² Valid = 92.8%
+# - Por qué funcionaron: La regularización fue crucial para limpiar el ruido de las
+#   >80 variables iniciales. ElasticNet (híbrido Lasso-Ridge) gestionó mejor la 
+#   multicolinealidad que Lasso puro, quedándose a solo un 0.07% de precisión del GAM.
+#   Esto demuestra que una aproximación lineal robusta es muy competitiva aquí.
+#
+# 3. LA TRAMPA DEL SOBREAJUSTE: Stepwise Selection (Forward/Backward)
+# -----------------------------------------------------------------------------
+# - La Alerta: Obtuvieron el mejor R² en Entrenamiento (93.1%) pero cayeron en 
+#   Validación (92.5%).
+# - Diagnóstico: Esto es un caso clásico de "Overfitting". Al ser algoritmos 
+#   codiciosos (greedy), memorizaron el ruido del set de entrenamiento para bajar 
+#   el AIC, pero eso perjudicó su capacidad de predecir casas nuevas.
+#
+# 4. LOS MODELOS DESCARTADOS: PCR y KNN
+# -----------------------------------------------------------------------------
+# - PCR (0.1234): Falló porque redujo la dimensión basándose solo en la varianza 
+#   geométrica, descartando matices sutiles pero importantes para el precio.
+# - KNN (0.1740): Sufrió la "maldición de la dimensionalidad". En un espacio de 
+#   tantas dimensiones, la distancia entre vecinos se vuelve irrelevante y el 
+#   modelo pierde capacidad predictiva drásticamente.
+#
+# =============================================================================
+# DECISIÓN FINAL DE NEGOCIO
+# =============================================================================
+# Se selecciona el modelo GAM (Splines) para la predicción final del Test Set.
+# - Es el más preciso (minimiza pérdidas económicas por error de tasación).
+# - Es interpretable (podemos ver las curvas de depreciación).
+# - Es robusto (validado en split 80/20 con métricas consistentes).
 # =============================================================================
