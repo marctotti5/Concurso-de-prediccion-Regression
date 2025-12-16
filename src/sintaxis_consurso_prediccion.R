@@ -2568,7 +2568,7 @@ submission_gam_exact <- data.frame(
   SalePrice = as.numeric(preds_euros_final)
 )
 
-write.csv(submission_gam_exact, "submission_GAM_Exacto.csv", row.names = FALSE)
+# write.csv(submission_gam_exact, "submission_GAM_Exacto.csv", row.names = FALSE)
 # 0.13922 RMSE en Kaggle (sin tuning extra)
 
 
@@ -2821,17 +2821,85 @@ preds_final <- exp(preds_log_blend)
 
 # Guardar
 submission <- data.frame(Id = test_ids, SalePrice = as.numeric(preds_final))
-write.csv(submission, "submission_GOD_MODE.csv", row.names = FALSE)
-print("Generado: submission_GOD_MODE.csv")
+# write.csv(submission, "submission_GOD_MODE.csv", row.names = FALSE)
 
 
+
+# =============================================================================
+# Calculo de pesos optimos de cada modelo lasso, ridge, enet ------
+# =============================================================================
+library(glmnet)
+
+print("--- 1. GENERANDO PREDICCIONES OUT-OF-FOLD (OOF) ---")
+# Necesitamos re-entrenar con keep=TRUE para que guarde las predicciones internas
+# de la validación cruzada. Sin esto, no podemos optimizar sin hacer trampa.
+
+set.seed(12345) # Semilla vital para que los folds sean consistentes
+
+# A. LASSO (OOF)
+print("Generando OOF Lasso...")
+fit_lasso_oof <- cv.glmnet(X_train_mat, y_train_vec, alpha = 1, type.measure = "mse", keep = TRUE)
+idx_lasso <- which(fit_lasso_oof$lambda == fit_lasso_oof$lambda.min)
+oof_lasso <- fit_lasso_oof$fit.preval[, idx_lasso]
+
+# B. RIDGE (OOF)
+print("Generando OOF Ridge...")
+fit_ridge_oof <- cv.glmnet(X_train_mat, y_train_vec, alpha = 0, type.measure = "mse", keep = TRUE)
+idx_ridge <- which(fit_ridge_oof$lambda == fit_ridge_oof$lambda.min)
+oof_ridge <- fit_ridge_oof$fit.preval[, idx_ridge]
+
+# C. ELASTICNET (OOF)
+print("Generando OOF ElasticNet...")
+fit_enet_oof <- cv.glmnet(X_train_mat, y_train_vec, alpha = 0.5, type.measure = "mse", keep = TRUE)
+idx_enet <- which(fit_enet_oof$lambda == fit_enet_oof$lambda.min)
+oof_enet <- fit_enet_oof$fit.preval[, idx_enet]
+
+
+print("--- 2. EJECUTANDO OPTIMIZADOR MATEMÁTICO ---")
+
+# Función de coste: Calcula el RMSE para una combinación de pesos dada
+# w[1] = Peso Lasso
+# w[2] = Peso ElasticNet
+# (1 - w[1] - w[2]) = Peso Ridge (el restante)
+
+loss_function <- function(w) {
+  w_lasso <- w[1]
+  w_enet  <- w[2]
+  w_ridge <- 1 - w_lasso - w_enet
+  
+  # Penalización fuerte si los pesos son negativos o suman más de 1
+  if (w_lasso < 0 || w_enet < 0 || w_ridge < 0) return(1e9)
+  
+  # Combinación
+  pred_blend <- (w_lasso * oof_lasso) + (w_enet * oof_enet) + (w_ridge * oof_ridge)
+  
+  # RMSE
+  rmse <- sqrt(mean((y_train_vec - pred_blend)^2))
+  return(rmse)
+}
+
+# Iniciamos la búsqueda asumiendo pesos iguales (0.33, 0.33)
+# optim buscará los valores exactos que minimizan el error
+opt_res <- optim(par = c(0.33, 0.33), fn = loss_function)
+
+# Extraemos los ganadores
+best_w_lasso <- opt_res$par[1]
+best_w_enet  <- opt_res$par[2]
+best_w_ridge <- 1 - best_w_lasso - best_w_enet
+
+
+print(paste("PESO LASSO      :", round(best_w_lasso, 5)))
+print(paste("PESO ELASTICNET :", round(best_w_enet, 5)))
+print(paste("PESO RIDGE      :", round(best_w_ridge, 5)))
 
 
 
 
 
 # =============================================================================
-# submission 0.12214, interacciones escogidas sabiamente
+# submission 0.12214 (con los pesos 0.4 lasso y enet, 0.2 ridge), interacciones escogidas sabiamente ------
+# submission 0.12216 (con los pesos escogido sabiamente con el algoritmo de arriba) e interaciones tambien. 
+# Al menos con este podemos defender el por qué de los pesos.
 # =============================================================================
 library(dplyr)
 library(caret)
@@ -2909,8 +2977,7 @@ vars_num_qual <- c("ExterQualNum", "KitchenQualNum", "FireplaceQuNum", "GarageQu
 for(v in vars_num_qual) full_data[[v]][is.na(full_data[[v]])] <- 0
 
 
-# C. --- AQUÍ ESTÁ EL CAMBIO ---
-# Sustituimos las manuales por el TOP 6 detectado por tu Lasso anterior
+# Sustituimos las manuales por el TOP 6 detectado por el Lasso anterior
 # ---------------------------------------------------------------------
 
 # 1. KitchenQual:GarageCars (La top 1 del Lasso)
@@ -2980,10 +3047,13 @@ cv_enet <- cv.glmnet(X_train, y_train, alpha = 0.5, type.measure = "mse", nfolds
 pred_enet <- predict(cv_enet, newx = X_test, s = "lambda.min")
 
 print("Mezclando predicciones...")
-preds_log_blend <- (0.4 * pred_lasso) + (0.4 * pred_enet) + (0.2 * pred_ridge)
+preds_log_blend <- (0.42463 * pred_lasso) + (0.33385 * pred_enet) + (0.24152 * pred_ridge)
 
 preds_final <- exp(preds_log_blend)
 
 submission <- data.frame(Id = test_ids, SalePrice = as.numeric(preds_final))
-write.csv(submission, "submission_GOD_MODE_LASSO_SELECTED.csv", row.names = FALSE)
-print("Generado: submission_GOD_MODE_LASSO_SELECTED.csv")
+# write.csv(submission, "submission_GOD_MODE_LASSO_SELECTED.csv", row.names = FALSE)
+
+
+
+
