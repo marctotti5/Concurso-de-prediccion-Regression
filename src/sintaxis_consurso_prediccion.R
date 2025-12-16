@@ -2578,7 +2578,7 @@ write.csv(submission_gam_exact, "submission_GAM_Exacto.csv", row.names = FALSE)
 
 
 # =============================================================================
-# EXPERIMENTO CORREGIDO: LASSO CON TODAS LAS INTERACCIONES POSIBLES
+# LASSO CON TODAS LAS INTERACCIONES POSIBLES para elegir sabiamente
 # =============================================================================
 library(glmnet)
 library(dplyr)
@@ -2823,3 +2823,167 @@ preds_final <- exp(preds_log_blend)
 submission <- data.frame(Id = test_ids, SalePrice = as.numeric(preds_final))
 write.csv(submission, "submission_GOD_MODE.csv", row.names = FALSE)
 print("Generado: submission_GOD_MODE.csv")
+
+
+
+
+
+
+
+# =============================================================================
+# submission 0.12214, interacciones escogidas sabiamente
+# =============================================================================
+library(dplyr)
+library(caret)
+library(glmnet)
+library(e1071)
+library(Matrix)
+
+print("--- 1. CARGA Y LIMPIEZA QUIRÚRGICA ---")
+train_df <- read.csv("data/train.csv", stringsAsFactors = FALSE)
+test_df  <- read.csv("data/test.csv", stringsAsFactors = FALSE)
+
+# OUTLIERS: Mantenemos la limpieza estándar que funciona
+train_df <- train_df %>% filter(!(GrLivArea > 4000 & SalePrice < 300000))
+
+# Preparamos Target y Unión
+train_df$log_SalePrice <- log(train_df$SalePrice)
+test_ids <- test_df$Id
+
+full_data <- bind_rows(
+  train_df %>% dplyr::select(-Id, -SalePrice, -log_SalePrice),
+  test_df %>% dplyr::select(-Id)
+)
+
+print("--- 2. IMPUTACIÓN ROBUSTA ---")
+
+cols_none <- c("PoolQC", "MiscFeature", "Alley", "Fence", "FireplaceQu",
+               "GarageType", "GarageFinish", "GarageQual", "GarageCond",
+               "BsmtQual", "BsmtCond", "BsmtExposure", "BsmtFinType1", "BsmtFinType2",
+               "MasVnrType", "MSSubClass")
+
+for(c in cols_none) full_data[[c]][is.na(full_data[[c]])] <- "None"
+
+cols_zero <- c("GarageYrBlt", "GarageArea", "GarageCars",
+               "BsmtFinSF1", "BsmtFinSF2", "BsmtUnfSF","TotalBsmtSF",
+               "MasVnrArea", "BsmtFullBath", "BsmtHalfBath")
+
+for(c in cols_zero) full_data[[c]][is.na(full_data[[c]])] <- 0
+
+imputer <- preProcess(full_data, method = c("medianImpute"))
+full_data <- predict(imputer, full_data)
+
+vars_char <- names(full_data)[sapply(full_data, is.character)]
+for(c in vars_char) {
+  if(any(is.na(full_data[[c]]))) {
+    moda <- names(sort(table(full_data[[c]]), decreasing=TRUE))[1]
+    full_data[[c]][is.na(full_data[[c]])] <- moda
+  }
+}
+
+print("--- 3. FEATURE ENGINEERING: INJERTANDO LAS INTERACCIONES DEL LASSO ---")
+
+# A. Variables Base necesarias
+full_data$TotalSF <- full_data$TotalBsmtSF + full_data$X1stFlrSF + full_data$X2ndFlrSF
+full_data$TotalBath <- full_data$FullBath + 0.5 * full_data$HalfBath + full_data$BsmtFullBath + 0.5 * full_data$BsmtHalfBath
+full_data$HouseAge <- 2010 - full_data$YearBuilt
+
+# B. MAPEO NUMÉRICO COMPLETO (Necesario para las interacciones detectadas)
+qual_map <- c("None"=0, "Po"=1, "Fa"=2, "TA"=3, "Gd"=4, "Ex"=5)
+
+# Función auxiliar para convertir rápido
+to_num <- function(x) {
+  as.numeric(factor(x, levels=c("None","Po","Fa","TA","Gd","Ex"), ordered=TRUE))
+}
+
+# Convertimos las variables que el Lasso identificó como claves para interactuar
+full_data$OverallQualNum <- full_data$OverallQual
+full_data$ExterQualNum   <- to_num(full_data$ExterQual)
+full_data$KitchenQualNum <- to_num(full_data$KitchenQual)
+full_data$FireplaceQuNum <- to_num(full_data$FireplaceQu) # <--- Necesaria para Fireplaces:FireplaceQu
+full_data$GarageQualNum  <- to_num(full_data$GarageQual)
+full_data$BsmtQualNum    <- to_num(full_data$BsmtQual)
+
+# Rellenar NAs generados en conversión con 0
+vars_num_qual <- c("ExterQualNum", "KitchenQualNum", "FireplaceQuNum", "GarageQualNum", "BsmtQualNum")
+for(v in vars_num_qual) full_data[[v]][is.na(full_data[[v]])] <- 0
+
+
+# C. --- AQUÍ ESTÁ EL CAMBIO ---
+# Sustituimos las manuales por el TOP 6 detectado por tu Lasso anterior
+# ---------------------------------------------------------------------
+
+# 1. KitchenQual:GarageCars (La top 1 del Lasso)
+full_data$Inter_Kitchen_Garage <- full_data$KitchenQualNum * full_data$GarageCars
+
+# 2. Fireplaces:FireplaceQu
+full_data$Inter_Fireplace_Qual <- full_data$Fireplaces * full_data$FireplaceQuNum
+
+# 3. ExterQual:TotalBath
+full_data$Inter_Exter_Bath <- full_data$ExterQualNum * full_data$TotalBath
+
+# 4. OverallQual:TotalBath
+full_data$Inter_Overall_Bath <- full_data$OverallQualNum * full_data$TotalBath
+
+# 5. KitchenQual:TotalBath
+full_data$Inter_Kitchen_Bath <- full_data$KitchenQualNum * full_data$TotalBath
+
+# 6. FireplaceQu:GarageCars (Curiosa correlación detectada)
+full_data$Inter_Fireplace_Garage <- full_data$FireplaceQuNum * full_data$GarageCars
+
+# ---------------------------------------------------------------------
+
+
+# D. Variables Binarias Críticas (Mantenemos estas, son muy robustas)
+full_data$HasPool <- ifelse(full_data$PoolArea > 0, 1, 0)
+full_data$HasGarage <- ifelse(full_data$GarageArea > 0, 1, 0)
+full_data$HasBsmt <- ifelse(full_data$TotalBsmtSF > 0, 1, 0)
+full_data$HasFireplace <- ifelse(full_data$Fireplaces > 0, 1, 0)
+
+# E. Factores
+full_data$MSSubClass <- as.factor(full_data$MSSubClass)
+full_data$MoSold <- as.factor(full_data$MoSold)
+
+print("--- 4. TRANSFORMACIONES FINALES ---")
+
+nums <- sapply(full_data, is.numeric)
+skewed <- sapply(full_data[, nums], e1071::skewness, na.rm = TRUE)
+vars_log <- names(skewed[skewed > 0.5])
+# Excluir binarias y las nuevas interacciones para no suavizarlas demasiado si no quieres
+vars_log <- setdiff(vars_log, c("HasPool", "HasGarage", "HasBsmt", "HasFireplace"))
+
+for(v in vars_log) {
+  full_data[[v]] <- log1p(full_data[[v]])
+}
+
+X_full <- model.matrix(~ . -1, data = full_data)
+
+n_train <- nrow(train_df)
+X_train <- X_full[1:n_train, ]
+X_test  <- X_full[(n_train + 1):nrow(X_full), ]
+y_train <- train_df$log_SalePrice
+
+print("--- 5. ENSEMBLE (LASSO + RIDGE + ELASTICNET) ---")
+set.seed(42)
+
+# Mantenemos exactamente el mismo esquema de modelado para comparar peras con peras
+print("Entrenando Ridge...")
+cv_ridge <- cv.glmnet(X_train, y_train, alpha = 0, type.measure = "mse", nfolds = 10)
+pred_ridge <- predict(cv_ridge, newx = X_test, s = "lambda.min")
+
+print("Entrenando Lasso...")
+cv_lasso <- cv.glmnet(X_train, y_train, alpha = 1, type.measure = "mse", nfolds = 10)
+pred_lasso <- predict(cv_lasso, newx = X_test, s = "lambda.min")
+
+print("Entrenando ElasticNet...")
+cv_enet <- cv.glmnet(X_train, y_train, alpha = 0.5, type.measure = "mse", nfolds = 10)
+pred_enet <- predict(cv_enet, newx = X_test, s = "lambda.min")
+
+print("Mezclando predicciones...")
+preds_log_blend <- (0.4 * pred_lasso) + (0.4 * pred_enet) + (0.2 * pred_ridge)
+
+preds_final <- exp(preds_log_blend)
+
+submission <- data.frame(Id = test_ids, SalePrice = as.numeric(preds_final))
+write.csv(submission, "submission_GOD_MODE_LASSO_SELECTED.csv", row.names = FALSE)
+print("Generado: submission_GOD_MODE_LASSO_SELECTED.csv")
