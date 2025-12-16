@@ -726,26 +726,60 @@ top_categorical_vars <- c(
   "FireplaceQu"
 )
 
-# Calcular median price por nivel de cada variable
-median_prices <- lapply(top_categorical_vars, function(var) {
-  data_pisos_train[complete.cases(data_pisos_train), ] |>
-    group_by(!!sym(var)) |>
+# Calcular median price por nivel de cada variable (level se guarda como character para poder bind_rows)
+median_prices <- purrr::map_dfr(top_categorical_vars, function(var) {
+  data_pisos_train |>
+    filter(complete.cases(data_pisos_train)) |>
+    group_by(!!rlang::sym(var)) |>
     summarise(
       median_price = median(SalePrice, na.rm = TRUE),
-      n = n()
+      n = dplyr::n(),
+      .groups = "drop"
     ) |>
-    arrange(median_price) |>
     mutate(
       variable = var,
-      level = as.character(!!sym(var))
+      level = as.character(!!rlang::sym(var))
     )
-}) |>
-  bind_rows()
+})
+
+# Orden por variable:
+# - FireplaceQu: orden fijo de "mejor a peor"
+# - Resto: orden por mediana (dentro de cada facet)
+fireplace_levels_desc <- c("Ex", "Gd", "TA", "Fa", "Po", "No Fireplace")
+
+median_prices <- median_prices |>
+  group_by(variable) |>
+  mutate(
+    level = dplyr::if_else(
+      variable == "FireplaceQu",
+      as.character(level),
+      as.character(forcats::fct_reorder(level, median_price, .desc = FALSE))
+    )
+  ) |>
+  ungroup() |>
+  mutate(
+    level = ifelse(variable == "FireplaceQu", level, level),
+    level = as.character(level)
+  )
+
+# Para que ggplot respete el orden FIXED solo en FireplaceQu sin romper el resto,
+# creamos una columna específica para el eje (x) con el factor correcto por fila.
+
+# Orden fijo FireplaceQu (mejor -> peor) y resto por mediana (mayor -> menor)
+fireplace_levels_desc <- c("Ex", "Gd", "TA", "Fa", "Po", "No Fireplace")
+
+median_prices <- median_prices |>
+  mutate(
+    level_plot = dplyr::case_when(
+      variable == "FireplaceQu" ~ factor(level, levels = fireplace_levels_desc),
+      TRUE ~ forcats::fct_reorder(level, median_price, .desc = TRUE)
+    )
+  )
 
 # Plot: Median price by level for top categorical variables
 ggplot(
   median_prices,
-  aes(x = reorder(level, median_price), y = median_price, fill = variable)
+  aes(x = level_plot, y = median_price, fill = variable)
 ) +
   geom_col(alpha = 0.8) +
   geom_text(
@@ -753,9 +787,10 @@ ggplot(
     hjust = -0.1,
     size = 2.5
   ) +
-  scale_y_continuous(labels = scales::dollar, limits = c(0, 350000)) +
+  scale_y_continuous(labels = scales::dollar, limits = c(0, 480000)) +
   scale_fill_viridis_d(name = "Variable") +
   coord_flip() +
+  scale_x_discrete(limits = rev) +
   facet_wrap(~variable, scales = "free_y", ncol = 2) +
   labs(
     title = "Top Categorical Predictors: Median SalePrice by Level",
@@ -769,6 +804,7 @@ ggplot(
     strip.text = element_text(face = "bold", size = 10),
     panel.spacing = unit(1, "lines")
   )
+
 
 # -----------------------------------------------------------------
 # SECCIÓN 10: ELIMINACIÓN DE VARIABLES CATEGÓRICAS REDUNDANTES ------
@@ -1005,12 +1041,61 @@ p_diag <- ggplot(diagnostics, aes(x = hat_val, y = std_resid)) +
 
 # Validación (TotalSF vs Precio)
 # Para confirmar que los outliers matemáticos coinciden con los casos "raros" (casas enormes y baratas).
+
+# Comparativa: recta con todos vs recta sin puntos de high leverage (Ids 1299 y 524)
+ids_high_leverage <- c("1299", "524")
+
+diagnostics_no_hl <- diagnostics |>
+  mutate(Id = as.character(Id)) |>
+  filter(!Id %in% ids_high_leverage)
+
+
 p_val <- ggplot(diagnostics, aes(x = TotalSF, y = SalePrice)) +
   geom_point(aes(color = cooks_d > cooks_threshold), alpha = 0.6) +
-  scale_color_manual(values = c("steelblue", "red")) +
-  labs(title = "Visual Validation: TotalSF vs Price", 
-       subtitle = "Influential points are visually distinguishable") +
+
+  # Línea 1: LM con todos los puntos
+  geom_smooth(
+    aes(linetype = "LM (all points)"),
+    method = "lm",
+    se = TRUE,
+    color = "black",
+    linewidth = 0.9
+  ) +
+
+  # Línea 2: LM excluyendo high leverage 1299 y 524
+  geom_smooth(
+    data = diagnostics_no_hl,
+    mapping = aes(x = TotalSF, y = SalePrice, linetype = "LM (excluding Id 1299 & 524)"),
+    method = "lm",
+    se = TRUE,
+    fullrange = TRUE,
+    color = "dodgerblue3",
+    linewidth = 0.9
+  ) +
+
+  # Leyenda puntos (Cook's D)
+  scale_color_manual(
+    values = c("FALSE" = "steelblue", "TRUE" = "red"),
+    name = "Cook's D > threshold"
+  ) +
+
+  # Leyenda líneas (comparativa)
+  scale_linetype_manual(
+    values = c(
+      "LM (all points)" = "solid",
+      "LM (excluding Id 1299 & 524)" = "dashed"
+    ),
+    name = "Trend lines"
+  ) +
+
+  labs(
+    title = "Visual Validation: TotalSF vs Price",
+    x = "TotalSF",
+    y = "SalePrice"
+  ) +
   theme_minimal()
+
+
 
 grid.arrange(p_diag, p_val, ncol = 2)
 
@@ -2421,100 +2506,57 @@ print(final_metrics_df)
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# SUBMUSSION DEL GAM ------
+# SUBMISSION CORRECTA DEL GAM (Fiel al Modelado)
 # -----------------------------------------------------------------------------
-print("--- PREPARANDO SUBMISSION DEL MODELO GAM (SOLO) ---")
 
-# 1. PREPARAR DATOS (Asegurar mismas transformaciones en Train y Test)
-# -----------------------------------------------------------------------------
-# Usamos los datasets imputados que ya tienes limpios
-full_train <- data_pisos_train_imputed # Sale 0.13466 si usamos imputed y 0.13753 si usamos clean (en kaggle con el test)
-full_test  <- data_pisos_test_imputed
+# 1. Recuperar el modelo ganador YA entrenado en la Sección 20
+# re-entrenar con el 100% del TRAIN LIMPIO.
 
-# A. CODIFICACIÓN ORDINAL (Calidad a números)
-# Esto es vital para que el GAM entienda la jerarquía de calidad
-qual_cols <- c("ExterQual", "ExterCond", "BsmtQual", "BsmtCond", 
-               "HeatingQC", "KitchenQual", "FireplaceQu", "GarageQual", "GarageCond")
-qual_levels <- c("Po", "Fa", "TA", "Gd", "Ex") 
+# Usamos data_pisos_train_clean
+final_train_data <- data_pisos_train_clean 
 
-for(col in qual_cols) {
-  # Train
-  if(col %in% names(full_train)) {
-    full_train[[col]] <- as.numeric(factor(full_train[[col]], levels = qual_levels, ordered = TRUE))
-    full_train[[col]][is.na(full_train[[col]])] <- 0
-  }
-  # Test
-  if(col %in% names(full_test)) {
-    full_test[[col]] <- as.numeric(factor(full_test[[col]], levels = qual_levels, ordered = TRUE))
-    full_test[[col]][is.na(full_test[[col]])] <- 0
-  }
-}
+# 2. Preparar el Test Set para que sea IDÉNTICO al Train Clean
+# Debemos aplicar al Test las mismas transformaciones que tiene el Train Clean.
+# Como data_pisos_train_clean viene de data_pisos_final, usamos data_pisos_test 
+# (que ya pasó por la Sección 7 de limpieza de variables redundantes).
 
-# B. TRANSFORMACIÓN LOGARÍTMICA (Skewness)
-# Calculamos asimetría SOLO en Train y aplicamos a ambos
-vars_num <- names(full_train)[sapply(full_train, is.numeric)]
-vars_check <- setdiff(vars_num, c("Id", "SalePrice", "log_SalePrice"))
+final_test_data <- data_pisos_test_imputed
 
-skew_vals <- sapply(full_train[, vars_check], skewness, na.rm = TRUE)
-vars_log <- names(skew_vals[skew_vals > 0.75])
+# IMPORTANTE: Asegurar que las variables creadas en Sección 4 existen en Test
+# (HouseAge, TotalSF, etc. que deberian de estar)
 
-print(paste("Aplicando Log a", length(vars_log), "variables (Train y Test)..."))
-for(v in vars_log) {
-  full_train[[v]] <- log1p(full_train[[v]])
-  if(v %in% names(full_test)) {
-    full_test[[v]] <- log1p(full_test[[v]])
+# 3. Alineación de Factores (Evitar error "New Levels")
+# Copiamos la estructura de factores del train limpio al test
+vars_factor <- names(final_train_data)[sapply(final_train_data, is.factor)]
+
+for(col in vars_factor) {
+  if(col %in% names(final_test_data)) {
+    # Igualar niveles
+    levels(final_test_data[[col]]) <- levels(final_train_data[[col]])
+    # Rellenar NAs generados por niveles desconocidos con la moda
+    if(any(is.na(final_test_data[[col]]))) {
+      moda <- names(sort(table(final_train_data[[col]]), decreasing=TRUE))[1]
+      final_test_data[[col]][is.na(final_test_data[[col]])] <- moda
+    }
   }
 }
 
-# 2. DEFINIR LA VARIABLE OBJETIVO
-# -----------------------------------------------------------------------------
-full_train$log_SalePrice <- log(full_train$SalePrice)
+# 4. Re-entrenar GAM con el 100% de datos LIMPIOS
+# Usamos la misma fórmula de la Sección 20
+final_gam_model_exact <- gam(gam_formula, data = final_train_data, method = "REML")
 
-# 3. RE-ENTRENAR EL GAM CON EL 100% DE LOS DATOS
-# -----------------------------------------------------------------------------
-# Usamos la fórmula que definimos anteriormente. Si no existe, usamos una robusta por defecto.
-if(!exists("gam_formula")) {
-  print("Aviso: 'gam_formula' no encontrada. Creando fórmula estándar con top variables.")
-  # Fórmula con splines s() en las más importantes y lineales en el resto
-  gam_formula <- as.formula("log_SalePrice ~ s(TotalSF, k=5) + s(GrLivArea, k=5) + s(YearBuilt, k=5) + s(YearRemodAdd, k=5) + OverallQual + Neighborhood + TotalBath")
-}
+# 5. Predecir
+preds_log_final <- predict(final_gam_model_exact, newdata = final_test_data)
+preds_euros_final <- exp(preds_log_final)
 
-print("Entrenando GAM Final con el 100% del Dataset...")
-# method = "REML" es el estándar más robusto para GAMs
-final_gam_model <- gam(gam_formula, data = full_train, method = "REML")
-
-# 4. PREDECIR SOBRE EL TEST SET
-# -----------------------------------------------------------------------------
-print("Generando predicciones...")
-
-# Predecir en escala Log
-preds_log <- predict(final_gam_model, newdata = full_test)
-
-# Convertir a Euros (Exponencial)
-preds_euros <- exp(preds_log)
-
-# 5. CREAR ARCHIVO CSV
-# -----------------------------------------------------------------------------
-submission_gam <- data.frame(
-  Id = data_pisos_test$Id, # Aseguramos usar los IDs originales
-  SalePrice = as.numeric(preds_euros)
+# 6. Guardar
+submission_gam_exact <- data.frame(
+  Id = data_pisos_test$Id,
+  SalePrice = as.numeric(preds_euros_final)
 )
 
-# Nombre del archivo
-filename <- "submission_GAM_Solo.csv"
-write.csv(submission_gam, filename, row.names = FALSE)
-
-# 6. VERIFICACIÓN FINAL
-# -----------------------------------------------------------------------------
-print(paste("--- ARCHIVO GENERADO:", filename, "---"))
-if(nrow(submission_gam) == 1459 && ncol(submission_gam) == 2) {
-  print("✅ VERIFICACIÓN OK: 1459 filas, 2 columnas (Id, SalePrice).")
-  print(head(submission_gam))
-} else {
-  print("❌ ERROR EN EL FORMATO DE SALIDA.")
-}
-
-
+write.csv(submission_gam_exact, "submission_GAM_Exacto.csv", row.names = FALSE)
+# 0.13922 RMSE en Kaggle (sin tuning extra)
 
 
 
