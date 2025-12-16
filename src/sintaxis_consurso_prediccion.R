@@ -2,43 +2,41 @@
 # SECCIÓN 1: CONFIGURACIÓN INICIAL Y CARGA DE LIBRERÍAS ------
 # -----------------------------------------------------------------
 
-# Pacman is a package to better handle the missing packages, when trying to load a package that is not present, it automatically installs it.
+# Usamos pacman para los paquetes
 if (!require("pacman")) {
   install.packages("pacman")
 }
 
 pacman::p_load(
-  tidyverse,
-  gridExtra,
-  DataExplorer,
-  labelled,
-  janitor,
-  gtsummary,
-  gt,
-  corrplot,
-  ggcorrplot,
-  GGally,
-  FactoMineR,
-  factoextra,
-  leaflet,
-  pheatmap,
-  sf,
-  ggpubr,
-  naniar,
-  mice,
-  car,
+  car, 
   caret,
+  corrplot,
+  DataExplorer,
   DescTools,
   dplyr,
-  caret,
-  glmnet,
   e1071,
-  Matrix,
-  psych,
+  factoextra,
+  FactoMineR,
+  GGally,
+  ggcorrplot,
+  ggpubr,
+  glmnet,
   GPArotation,
-  pheatmap,
+  gridExtra,
+  gt,
+  gtsummary,
+  janitor,
+  labelled,
+  leaflet,
+  MASS,
+  Matrix,
   mgcv,
-  MASS
+  mice,
+  naniar,
+  pheatmap,
+  psych,
+  sf,
+  tidyverse
 )
 
 
@@ -1629,11 +1627,6 @@ pca_individuals_neighbourhood
 # ...existing code...
 # Ejemplo: rotación varimax y oblimin para PCA exploratorio
 
-# Requiere: install.packages(c("psych","GPArotation","pheatmap"))
-library(psych)
-library(GPArotation)
-library(pheatmap)
-
 # 1) Preparar matriz numérica (usar dataset ya imputado)
 X <- data_pisos_train_clean |>
   dplyr::select(where(is.numeric), -Id, -SalePrice)
@@ -1737,11 +1730,6 @@ rotated_solutions
 # -----------------------------------------------------------------------------
 # MODELO 1: LASSO REGRESSION (L1 Regularization)
 # -----------------------------------------------------------------------------
-if (!require("glmnet")) {
-  install.packages("glmnet")
-}
-library(glmnet)
-library(dplyr)
 
 # 1. PREPARACIÓN DE DATOS (MATRICES)
 # -----------------------------------------------------------------------------
@@ -2004,8 +1992,6 @@ print(head(df_coefs_enet, 5))
 # -----------------------------------------------------------------------------
 # MODELO 4: PCA REGRESSION (PCR)
 # -----------------------------------------------------------------------------
-library(caret)
-
 
 # Definimos variables
 target_var <- "log_SalePrice"
@@ -2194,10 +2180,6 @@ print(paste("5. PCR:       ", round(best_pcr_rmse, 4)))
 # -----------------------------------------------------------------------------
 # MODELO 6: GAM (Generalized Additive Models)
 # -----------------------------------------------------------------------------
-if (!require("mgcv")) {
-  install.packages("mgcv")
-}
-library(mgcv)
 
 print("Entrenando GAM con Splines Cúbicos...")
 
@@ -2769,8 +2751,6 @@ write.csv(submission, "submission_GAM.csv", row.names = FALSE)
 # -----------------------------------------------------------------------------
 # MODELOS 7 y 8: SELECCIÓN DE VARIABLES (BACKWARD & FORWARD)
 # -----------------------------------------------------------------------------
-library(MASS)
-library(dplyr)
 
 print("--- Iniciando modelos Stepwise (Backward/Forward) ---")
 
@@ -3187,9 +3167,6 @@ submission_gam_exact <- data.frame(
 # =============================================================================
 # LASSO CON TODAS LAS INTERACCIONES POSIBLES para elegir sabiamente
 # =============================================================================
-library(glmnet)
-library(dplyr)
-library(Matrix)
 
 # 1. PREPARACIÓN DE DATOS
 # -----------------------------------------------------------------------------
@@ -3297,11 +3274,6 @@ print(head(df_res, 10))
 # =============================================================================
 # Submussion de 0.12217 RMSE en el test: Prueba en kaggle -----
 # =============================================================================
-library(dplyr)
-library(caret)
-library(glmnet)
-library(e1071)
-library(Matrix)
 
 print("--- 1. CARGA Y LIMPIEZA QUIRÚRGICA ---")
 train_df <- read.csv("data/train.csv", stringsAsFactors = FALSE)
@@ -3505,7 +3477,6 @@ submission <- data.frame(Id = test_ids, SalePrice = as.numeric(preds_final))
 # =============================================================================
 # Calculo de pesos optimos de cada modelo lasso, ridge, enet ------
 # =============================================================================
-library(glmnet)
 
 print("--- 1. GENERANDO PREDICCIONES OUT-OF-FOLD (OOF) ---")
 # Necesitamos re-entrenar con keep=TRUE para que guarde las predicciones internas
@@ -3597,11 +3568,6 @@ print(paste("PESO RIDGE      :", round(best_w_ridge, 5)))
 # submission 0.12216 (con los pesos escogido sabiamente con el algoritmo de arriba) e interaciones tambien.
 # Al menos con este podemos defender el por qué de los pesos.
 # =============================================================================
-library(dplyr)
-library(caret)
-library(glmnet)
-library(e1071)
-library(Matrix)
 
 print("--- 1. CARGA Y LIMPIEZA QUIRÚRGICA ---")
 train_df <- read.csv("data/train.csv", stringsAsFactors = FALSE)
