@@ -2574,6 +2574,108 @@ write.csv(submission_gam_exact, "submission_GAM_Exacto.csv", row.names = FALSE)
 
 
 
+
+
+
+# =============================================================================
+# EXPERIMENTO CORREGIDO: LASSO CON TODAS LAS INTERACCIONES POSIBLES
+# =============================================================================
+library(glmnet)
+library(dplyr)
+library(Matrix)
+
+# 1. PREPARACIÓN DE DATOS
+# -----------------------------------------------------------------------------
+# Guardamos el Target APARTE antes de borrar nada
+y_vector <- data_pisos_train_clean$log_SalePrice
+
+# Limpiamos el dataframe de predictores (QUITAMOS LA RESPUESTA Y EL ID)
+df_lasso <- data_pisos_train_clean %>%
+  dplyr::select(-Id, -SalePrice, -log_SalePrice) # <--- AQUÍ ESTABA EL ERROR ANTES
+
+# A. Convertir FACTORES DE CALIDAD a NUMÉRICOS (Igual que antes)
+# Necesitamos que sean números para que la multiplicación tenga sentido (Calidad * Metros)
+qual_levels <- c("None", "Po", "Fa", "TA", "Gd", "Ex")
+cols_calidad <- c("ExterQual", "ExterCond", "BsmtQual", "BsmtCond", 
+                  "HeatingQC", "KitchenQual", "FireplaceQu", 
+                  "GarageQual", "GarageCond")
+
+for(col in cols_calidad) {
+  if(col %in% names(df_lasso)) {
+    df_lasso[[col]] <- as.numeric(factor(df_lasso[[col]], levels = qual_levels, ordered = TRUE))
+    df_lasso[[col]][is.na(df_lasso[[col]])] <- 0
+  }
+}
+
+# OverallQual y OverallCond
+if("OverallQual" %in% names(df_lasso)) df_lasso$OverallQual <- as.numeric(as.character(df_lasso$OverallQual))
+if("OverallCond" %in% names(df_lasso)) df_lasso$OverallCond <- as.numeric(as.character(df_lasso$OverallCond))
+
+# B. DEFINIR LISTAS DE VARIABLES PARA CRUZAR
+# Variables de Calidad (Numéricas 1-5 o 1-10)
+vars_qual <- c("OverallQual", "OverallCond", cols_calidad)
+vars_qual <- intersect(vars_qual, names(df_lasso)) 
+
+# Variables de Cantidad/Tamaño (El resto de numéricas)
+# Ojo: No cruzamos calidad con calidad, ni tamaño con tamaño para no explotar la RAM
+vars_quant <- names(df_lasso)[sapply(df_lasso, is.numeric)]
+vars_quant <- setdiff(vars_quant, vars_qual)
+
+# 2. CREACIÓN DE LA MATRIZ CON INTERACCIONES
+# -----------------------------------------------------------------------------
+print("Generando matriz de interacciones (Sin la variable respuesta)...")
+
+# Fórmula: Variables originales (.) + (Calidad * Cantidad)
+formula_interacciones <- paste(
+  "~ . + (", 
+  paste(vars_qual, collapse = " + "), 
+  ") * (", 
+  paste(vars_quant, collapse = " + "), 
+  ")"
+)
+
+X_matrix <- model.matrix(as.formula(formula_interacciones), data = df_lasso)[, -1]
+
+print(paste("Dimensiones de la matriz:", ncol(X_matrix), "columnas."))
+
+# 3. ENTRENAMIENTO
+# -----------------------------------------------------------------------------
+set.seed(123)
+print("Entrenando Lasso...")
+
+fit_lasso_inter <- cv.glmnet(
+  x = X_matrix, 
+  y = y_vector, 
+  alpha = 1, 
+  standardize = TRUE
+)
+
+# 4. RESULTADOS REALES
+# -----------------------------------------------------------------------------
+coefs <- coef(fit_lasso_inter, s = "lambda.1se")
+
+df_res <- data.frame(
+  Variable = rownames(coefs),
+  Peso = as.numeric(coefs)
+) %>%
+  filter(Peso != 0 & Variable != "(Intercept)") %>%
+  arrange(desc(abs(Peso)))
+
+print("--- TOP INTERACCIONES REALES DESCUBIERTAS ---")
+# Filtramos solo las que tienen ":" (interacciones)
+print(head(df_res %>% filter(grepl(":", Variable)), 15))
+
+print("--- TOP VARIABLES GLOBALES ---")
+print(head(df_res, 10))
+
+
+
+
+
+
+
+
+
 # =============================================================================
 # Submussion de 0.12217 RMSE en el test: Prueba en kaggle -----
 # =============================================================================
