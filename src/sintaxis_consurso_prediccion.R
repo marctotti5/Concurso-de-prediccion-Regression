@@ -28,8 +28,20 @@ pacman::p_load(
   mice,
   car, 
   caret,
-  DescTools
+  DescTools,
+  dplyr,
+  caret,
+  glmnet,
+  e1071,
+  Matrix,
+  psych,
+  GPArotation,
+  pheatmap,
+  mgcv,
+  MASS
 )
+
+
 
 ## 1.2. Definir operador personalizado
 `%notin%` <- Negate("%in%")
@@ -90,6 +102,8 @@ data_pisos <- data_pisos %>%
   mutate(
     # Variables ordinales convertidas a factor con orden
     MSSubClass = factor(as.character(MSSubClass)),
+    MoSold = factor(as.character(MoSold)),
+    YrSold = factor(as.character(YrSold)),
     OverallQual = factor(as.character(OverallQual), levels = 1:10),
     OverallCond = factor(as.character(OverallCond), levels = 1:10),
     
@@ -186,10 +200,10 @@ data_pisos <- data_pisos %>%
     TotalBath = FullBath + HalfBath * 0.5 + BsmtFullBath + BsmtHalfBath * 0.5,
     
     # Edad de la vivienda en años (al momento de venta)
-    HouseAge = YrSold - YearBuilt,
+    HouseAge = as.numeric(YrSold) - YearBuilt,
     
     # Tiempo transcurrido desde la última remodelación
-    YearsSinceRemod = YrSold - YearRemodAdd,
+    YearsSinceRemod = as.numeric(YrSold) - YearRemodAdd,
     
     # Superficie total: sótano + área habitable
     TotalSF = TotalBsmtSF + GrLivArea,
@@ -362,7 +376,7 @@ p4 <- data_pisos |>
   ) +
   labs(
     title = "PoolArea Distribution",
-    subtitle = "99.9% have no pool → Near-zero variance",
+    subtitle = "99.6% have no pool → Near-zero variance",
     x = "Pool Status",
     y = "Count"
   ) +
@@ -401,6 +415,8 @@ data_pisos_final <- data_pisos |>
       # Variables de año (reemplazadas por HouseAge/YearsSinceRemod)
       YearBuilt,
       YearRemodAdd,
+      
+  
 
       # Garaje (mantener GarageCars, eliminar GarageArea)
       GarageArea,
@@ -787,7 +803,7 @@ ggplot(
     hjust = -0.1,
     size = 2.5
   ) +
-  scale_y_continuous(labels = scales::dollar, limits = c(0, 480000)) +
+  scale_y_continuous(labels = scales::dollar, limits = c(0, 450000)) +
   scale_fill_viridis_d(name = "Variable") +
   coord_flip() +
   scale_x_discrete(limits = rev) +
@@ -941,7 +957,7 @@ data_pisos_train |>
 # Quitamos las casas "trampa" del Train ANTES de juntar nada.
 # Si las dejamos, MICE podría aprender patrones erróneos de esas casas raras.
 # data_pisos_train_clean_rows <- data_pisos_train %>% 
-#  filter(!(GrLivArea > 4000 & SalePrice < 300000))
+#  filter(!(GrLivArea > 4000 & SalePrice < 450000))
 
 # print(paste("Filas de train tras quitar outliers:", nrow(data_pisos_train_clean_rows)))
 
@@ -1168,16 +1184,16 @@ if(length(ids_final_removal) > 0) {
 # SECCIÓN 15: NORMALITY ANALYSIS (TARGET VARIABLE) ------
 ## ----------------------------------------------------------------------------------------------------------
 
-# ESTO LO HACEMOS DOS VECES, MARK LO HACE EN LAS SECCIONES INICIALES
+# ESTO LO HACEMOS DOS VECES, MARC LO HACE EN LAS SECCIONES INICIALES
 
 
 # 1. Visual Inspection
 target_df <- data_pisos_train_clean
 
-p1 <- ggplot(target_df, aes(x = SalePrice)) + geom_density(fill = "skyblue", alpha=0.5) + labs(title = "Original")
-p2 <- ggplot(target_df, aes(sample = SalePrice)) + stat_qq() + stat_qq_line(color = "red")
-p3 <- ggplot(target_df, aes(x = log(SalePrice))) + geom_density(fill = "lightgreen", alpha=0.5) + labs(title = "Log Transformed")
-p4 <- ggplot(target_df, aes(sample = log(SalePrice))) + stat_qq() + stat_qq_line(color = "darkgreen")
+p1 <- ggplot(target_df, aes(x = SalePrice)) + geom_density(fill = "skyblue", alpha=0.5) + labs(title = "Original") + theme_minimal()
+p2 <- ggplot(target_df, aes(sample = SalePrice)) + stat_qq() + stat_qq_line(color = "red") + theme_minimal()
+p3 <- ggplot(target_df, aes(x = log(SalePrice))) + geom_density(fill = "lightgreen", alpha=0.5) + labs(title = "Log Transformed") + theme_minimal()
+p4 <- ggplot(target_df, aes(sample = log(SalePrice))) + stat_qq() + stat_qq_line(color = "darkgreen") + theme_minimal()
 
 grid.arrange(p1, p2, p3, p4, ncol = 2)
 
@@ -1261,7 +1277,7 @@ vars_irrelevant <- relevance_cat %>%
   arrange(desc(P_Value))
 print(vars_irrelevant)
 
-# no hay irrelevants
+# MoSold eliminada por irrelevante
 
 
 ## ----------------------------------------------------------------------------------------------------------
@@ -1319,14 +1335,14 @@ cond_val
 
 # ------
 # Volvemos a probar el condition number de kappa tras eliminar estas variables
-X_matrix <- data_pisos_train_clean %>%
-  dplyr::select(where(is.numeric), -Id, -contains("SalePrice")) %>% 
-  scale()
+# X_matrix <- data_pisos_train_clean %>%
+#   dplyr::select(where(is.numeric), -Id, -contains("SalePrice")) %>% 
+#   scale()
 
 # Calcular numero de condicion
-cond_val <- kappa(na.omit(X_matrix))
+# cond_val <- kappa(na.omit(X_matrix))
 
-cond_val
+# cond_val
 
 # Ha subido ligeramente asi que no las eliminamos
 #-------
@@ -1755,12 +1771,12 @@ print(paste("Número total de variables seleccionadas:", nrow(df_coefs)))
 # -----------------------------------------------------------------------------
 # INTERPRETACIÓN RESULTADOS LASSO
 # -----------------------------------------------------------------------------
-# 1. Rendimiento (RMSE): 0.109 (Escala Logarítmica)
+# 1. Rendimiento (RMSE): solia salir 0.109 ahora sale 0.1127 al quitar YrSold y MoSold (Escala Logarítmica)
 #    - El modelo tiene un error medio aproximado del ~11% en el precio de venta.
 #    - Es un benchmark muy competitivo para empezar.
 #
 # 2. Selección de Variables:
-#    - Lasso ha seleccionado 85 variables relevantes, reduciendo la dimensionalidad
+#    - Lasso ha seleccionado 75 (antes 85) variables relevantes, reduciendo la dimensionalidad
 #      y eliminando ruido. Esto cumple con el objetivo de identificar variables 
 #      redundantes .
 #
@@ -1829,16 +1845,13 @@ print(paste("Diferencia RMSE (Ridge - Lasso):", round(rmse_ridge - rmse_lasso, 5
 # -----------------------------------------------------------------------------
 # INTERPRETACIÓN RESULTADOS RIDGE
 # -----------------------------------------------------------------------------
-# 1. Rendimiento (RMSE): 0.1114
-#    - El error es ligeramente SUPERIOR al de Lasso (+0.0024).
+# 1. Rendimiento (RMSE): 0.1123 (antes 0.1114)
+#    - El error es ligeramente INFERIOR al de Lasso (-0.0004).
 #    - En este caso, Ridge (que mantiene todas las variables) funciona peor que 
 #      Lasso (que eliminó variables). 
 #
-# 2. Conclusión del dato:
-#    - Esto sugiere que la "escasez" (sparsity) es importante: es mejor tener 
-#      pocas variables muy potentes que muchas variables aportando poco ruido.
 #
-# 3. Coeficientes:
+# 2. Coeficientes:
 #    - Ridge penaliza pero no elimina. Vemos que 'OverallQual' y 'GarageQual'
 #      siguen siendo los reyes del precio, manteniendo la consistencia con Lasso.
 
@@ -1913,15 +1926,15 @@ print(head(df_coefs_enet, 5))
 # -----------------------------------------------------------------------------
 # INTERPRETACIÓN RESULTADOS ELASTIC NET
 # -----------------------------------------------------------------------------
-# 1. Rendimiento (RMSE): 0.1084 (GANADOR ACTUAL)
-#    - Ha superado tanto a Lasso (0.1090) como a Ridge (0.1114).
+# 1. Rendimiento (RMSE): 0.1102 (GANADOR ACTUAL)
+#    - Ha superado tanto a Lasso (0.1127) como a Ridge (0.1123).
 #    - Alpha = 0.4 indica que el modelo óptimo es un híbrido: 
 #      40% Lasso (selección) + 60% Ridge (contracción).
 #
 # 2. Selección de Variables:
-#    - Se ha quedado con 86 variables. Curiosamente, casi el mismo número que Lasso (85).
+#    - Se ha quedado con 86 variables. Curiosamente, casi el mismo número que Lasso (75).
 #    - Esto confirma firmemente que el "núcleo duro" de información para predecir 
-#      precios en Ames reside en unas ~85 variables transformadas.
+#      precios en Ames reside en unas ~75 variables transformadas.
 #
 # 3. Conclusión de Negocio:
 #    - Si tuvieras que poner un modelo en producción hoy, este sería el elegido.
@@ -1931,7 +1944,7 @@ print(head(df_coefs_enet, 5))
 
 
 # -----------------------------------------------------------------------------
-# MODELO 4: PCA REGRESSION (PCR) - VERSIÓN ROBUSTA CON CARET
+# MODELO 4: PCA REGRESSION (PCR) 
 # -----------------------------------------------------------------------------
 library(caret) 
 
@@ -1983,7 +1996,7 @@ X_val_pca   <- predict(pca_model, newdata = X_val_clean)
 # Loop para encontrar el mejor número de componentes
 # Probamos hasta 150 componentes (o el máximo disponible si es menor)
 max_comps <- min(150, ncol(X_train_pca))
-n_components_to_test <- seq(10, max_comps, by = 10)
+n_components_to_test <- seq(10, max_comps, by =10)
 
 best_pcr_rmse <- Inf
 best_n_comp   <- 0
@@ -2021,12 +2034,12 @@ legend("topright", legend = c("PCR"), col = c("blue"), lty = 1)
 # -----------------------------------------------------------------------------
 # INTERPRETACIÓN RESULTADOS PCR (Principal Component Regression)
 # -----------------------------------------------------------------------------
-# 1. Rendimiento (RMSE): 0.1234
-#    - Este modelo NO ha logrado superar a ElasticNet (0.1084) ni a Lasso/Ridge.
+# 1. Rendimiento (RMSE): 0.1244
+#    - Este modelo NO ha logrado superar a ElasticNet (0.1102) ni a Lasso/Ridge.
 #    - Se sitúa como el de peor desempeño hasta el momento.
 #
 # 2. Análisis de Componentes:
-#    - El modelo necesitó 90 componentes principales para alcanzar su óptimo.
+#    - El modelo necesitó 100 componentes principales para alcanzar su óptimo.
 #    - Esto indica que la información del precio está muy dispersa y no se deja
 #      comprimir fácilmente en unos pocos "super-factores" lineales sin perder
 #      poder predictivo.
@@ -2095,7 +2108,7 @@ print(paste("5. PCR:       ", round(best_pcr_rmse, 4)))
 # -----------------------------------------------------------------------------
 # INTERPRETACIÓN RESULTADOS KNN (Regresión Local)
 # -----------------------------------------------------------------------------
-# 1. Rendimiento (RMSE): 0.174 (EL PEOR)
+# 1. Rendimiento (RMSE): 0.1784 (EL PEOR)
 #    - El error es significativamente más alto que los modelos lineales (~0.108).
 #    - KNN ha fallado estrepitosamente.
 #
@@ -2171,8 +2184,7 @@ results_summary <- data.frame(
 ) %>%
   arrange(RMSE)
 
-print("--- CLASIFICACIÓN FINAL DEL CONCURSO ---")
-print(results_summary)
+
 
 # -----------------------------------------------------------------------------
 # INTERPRETACIÓN RESULTADOS GAM (GANADOR FINAL)
@@ -2436,6 +2448,7 @@ final_metrics_df <- rbind(
   LM_Forward = m_fwd,
   PCR = m_pcr,
   KNN = m_knn
+
 ) %>%
   as.data.frame() %>%
   rownames_to_column("Modelo") %>%
