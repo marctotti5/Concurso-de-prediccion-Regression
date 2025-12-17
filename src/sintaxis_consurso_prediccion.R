@@ -2722,6 +2722,32 @@ results_summary <- data.frame(
   arrange(RMSE)
 
 
+
+# -----------------------------------------------------------------------------
+# hacer csv
+# -----------------------------------------------------------------------------
+predecir_y_printear_test <- function(modelo, test_data, test_ids, n_preview = 10) {
+  preds_log <- predict(modelo, newdata = test_data)
+  res <- data.frame(
+    Id = test_ids$Id,
+    Prediccion = exp(as.numeric(preds_log))
+  )
+  print(utils::head(res, n_preview))
+  return(res)
+}
+
+preds_test_df <- predecir_y_printear_test(
+  modelo = gam_model,     
+  test_data = data_pisos_test_imputed, 
+  test_ids  = data_pisos_test_imputed,       
+  n_preview = 10
+)
+
+submission <- data.frame(Id = preds_test_df$Id, SalePrice = preds_test_df$Prediccion)
+write.csv(submission, "submission_GAM.csv", row.names = FALSE)
+
+
+
 # -----------------------------------------------------------------------------
 # INTERPRETACIÓN RESULTADOS GAM (GANADOR FINAL)
 # -----------------------------------------------------------------------------
