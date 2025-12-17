@@ -2363,7 +2363,7 @@ variables_categoricas_relacion_respuesta <- ggplot(
   theme(legend.position = "bottom")
 
 
-## Búsqueda exhaustiva de interacciones
+## INTERACCIONES VARIABLES NUMERICAS Y CATEGORICAS
 # 1. IDENTIFICAR VARIABLES NUMÉRICAS Y CATEGÓRICAS
 # -----------------------------------------------------------------------------
 numeric_vars <- data_train_gam %>%
@@ -2462,6 +2462,120 @@ for (i in seq(1, n_plots, by = plots_per_page)) {
   do.call(grid.arrange, c(plots_all[i:end_idx], ncol = 3))
 }
 
+## INTERACCIONES VARIABLES CATEGORICAS
+cat_vars <- data_train_gam %>%
+  dplyr::select(where(is.factor)) %>%
+  names()
+
+cat_vars <- setdiff(cat_vars, c("Id", "conjunto")) # Excluir variables irrelevantes
+
+print(paste("Variables categóricas a evaluar:", length(cat_vars)))
+print(paste("Total de combinaciones:", choose(length(cat_vars), 2)))
+
+# 2. FUNCIÓN PARA EVALUAR INTERACCIÓN (ANOVA DOS VÍAS)
+# -----------------------------------------------------------------------------
+test_interaction <- function(data, var1, var2, target) {
+  # Fórmula: Target ~ Var1 + Var2 + Var1:Var2
+  formula_str <- paste(target, "~", var1, "+", var2, "+", var1, ":", var2)
+
+  tryCatch(
+    {
+      # ANOVA de dos vías
+      model_full <- aov(as.formula(formula_str), data = data)
+      anova_result <- anova(model_full)
+
+      # Extraer F-statistic y p-value del término de INTERACCIÓN (última fila)
+      interaction_row <- nrow(anova_result) - 1 # Penúltima fila (antes de Residuals)
+      f_stat <- anova_result$`F value`[interaction_row]
+      p_val <- anova_result$`Pr(>F)`[interaction_row]
+
+      # Eta-squared de la interacción
+      ss_interaction <- anova_result$`Sum Sq`[interaction_row]
+      ss_total <- sum(anova_result$`Sum Sq`)
+      eta_sq <- ss_interaction / ss_total
+
+      return(data.frame(
+        Var1 = var1,
+        Var2 = var2,
+        F_Statistic = f_stat,
+        P_Value = p_val,
+        Eta_Squared = eta_sq,
+        Significant = ifelse(p_val < 0.05, "Yes", "No")
+      ))
+    },
+    error = function(e) {
+      return(NULL)
+    }
+  )
+}
+
+# 3. GENERAR TODAS LAS COMBINACIONES Y EVALUAR
+# -----------------------------------------------------------------------------
+print("Ejecutando ANOVA de dos vías para todas las combinaciones...")
+
+# Crear grid de pares (evitando duplicados: A-B es lo mismo que B-A)
+cat_pairs <- combn(cat_vars, 2, simplify = FALSE)
+
+# Aplicar test a cada par
+results_interactions <- lapply(cat_pairs, function(pair) {
+  test_interaction(data_train_gam, pair[1], pair[2], target_var)
+}) %>%
+  bind_rows() %>%
+  arrange(desc(Eta_Squared)) %>%
+  filter(!is.na(F_Statistic)) # Eliminar fallos
+
+print(paste(
+  "Interacciones evaluadas exitosamente:",
+  nrow(results_interactions)
+))
+
+# 4. FILTRAR LAS SIGNIFICATIVAS Y RELEVANTES
+# -----------------------------------------------------------------------------
+# Criterio: P-value < 0.05 (significativas) Y Eta² > 0.01 (efecto no trivial)
+interactions_relevant <- results_interactions %>%
+  filter(P_Value < 0.05 & Eta_Squared > 0.01) %>%
+  arrange(desc(Eta_Squared))
+
+print("--- TOP 15 INTERACCIONES CATEGÓRICAS MÁS IMPORTANTES ---")
+print(head(interactions_relevant, 15))
+
+# 5. VISUALIZACIÓN: HEATMAP DE P-VALUES
+# -----------------------------------------------------------------------------
+# Convertir a matriz para pheatmap
+library(tidyr)
+library(pheatmap)
+
+interaction_matrix <- results_interactions %>%
+  dplyr::select(Var1, Var2, P_Value) %>%
+  pivot_wider(names_from = Var2, values_from = P_Value, values_fill = 1) %>%
+  column_to_rownames("Var1") %>%
+  as.matrix()
+
+# Solo mostrar las top variables (limitar a 20x20 para legibilidad)
+top_vars <- unique(c(
+  head(interactions_relevant$Var1, 15),
+  head(interactions_relevant$Var2, 15)
+))
+interaction_matrix_top <- interaction_matrix[
+  rownames(interaction_matrix) %in% top_vars,
+  colnames(interaction_matrix) %in% top_vars
+]
+
+pheatmap(
+  -log10(interaction_matrix_top + 1e-10), # -log10(p) para mejor visualización
+  cluster_rows = FALSE,
+  cluster_cols = FALSE,
+  color = colorRampPalette(c("white", "orange", "red"))(100),
+  main = "Interacciones Categóricas: -log10(P-Value)",
+  fontsize_row = 8,
+  fontsize_col = 8,
+  breaks = seq(
+    0,
+    max(-log10(interaction_matrix_top + 1e-10), na.rm = TRUE),
+    length.out = 101
+  )
+)
+
 
 # Fórmula corregida:
 # - Usamos 'HouseAge' en lugar de 'YearBuilt'
@@ -2485,13 +2599,36 @@ gam_formula <- as.formula(
   )
 )
 
+
+numeric_vars <- c(
+  "TotalSF",
+  "HouseAge",
+  "YearsSinceRemod",
+  "LotArea",
+  "TotalBath"
+)
+
+k_suggestions <- sapply(numeric_vars, function(var) {
+  n_unique <- length(unique(data_train_gam[[var]]))
+  k_max <- min(n_unique / 4, 40) # No más de 20
+  k_rec <- max(3, floor(k_max)) # Mínimo 3
+
+  return(c(
+    variable = var,
+    n_unique = n_unique,
+    k_max = k_max,
+    k_recommended = k_rec
+  ))
+})
+
+
 gam_formula_interacciones <- as.formula(
   paste(
     target_var,
     "~",
-    "s(TotalSF,  bs='cr', k=15) +", # Tamaño total (curva)
-    "s(HouseAge, bs='cr', by = OverallCond, k=15) +", # Antigüedad (curva)
-    "s(YearsSinceRemod, bs='re', by = Neighborhood, k=15) +", # Tiempo desde reforma (curva)
+    "s(TotalSF,  bs='cr', k=40) +", # Tamaño total (curva)
+    "s(HouseAge, bs='cr', by = OverallCond, k=29) +", # Antigüedad (curva)
+    "s(YearsSinceRemod, bs='re', by = Neighborhood, k=40) +", # Tiempo desde reforma (curva)
     "s(LotArea, bs='cr', k=15) +", # Área parcela (curva)
     "OverallQual +", # Factores lineales
     "OverallCond +",
@@ -2499,7 +2636,7 @@ gam_formula_interacciones <- as.formula(
     "s(Neighborhood, bs = 're') +",
     "GarageCars +",
     "Fireplaces +",
-    "TotalBath +",
+    "s(TotalBath, bs = 'cr', k = 3) +",
     "BsmtQual +",
     "KitchenQual +",
     "GarageFinish"
@@ -2519,17 +2656,49 @@ gam_model <- gam(
   method = "REML"
 )
 
-
 # Mostramos resumen (fíjate en la columna 'edf' de los términos suavizados)
 # edf > 1 indica no-linealidad. edf = 1 indica que es una recta.
 print(summary(gam_model))
 
-# 3. VISUALIZACIÓN DE CURVAS
+
+# 3. DIAGNOSTICO + CURVAS
 # -----------------------------------------------------------------------------
 # Dibuja cómo afecta cada variable numérica al precio
 par(mfrow = c(2, 2))
 plot(gam_model, scheme = 1, shade = TRUE, pages = 1, all.terms = FALSE)
+gam.check(gam_model)
 par(mfrow = c(1, 1))
+
+# Código de diagnóstico
+problematic_cases <- data_train_gam %>%
+  mutate(
+    residuo = residuals(gam_model),
+    pred = fitted(gam_model)
+  ) %>%
+  filter(residuo < -0.3) %>% # Casos con mayor sobrevalorización
+  arrange(residuo) %>%
+  dplyr::select(
+    Id,
+    Neighborhood,
+    OverallQual,
+    TotalSF,
+    HouseAge,
+    KitchenQual,
+    residuo,
+    pred,
+    log_SalePrice
+  )
+
+# Ver patrones
+problematic_cases %>%
+  count(Neighborhood, sort = TRUE) # ¿Se concentran en barrios específicos?
+
+problematic_cases %>%
+  summarise(
+    avg_qual = mean(as.numeric(OverallQual)),
+    avg_age = mean(HouseAge)
+  )
+
 
 # 4. EVALUACIÓN Y TABLA FINAL
 # -----------------------------------------------------------------------------
