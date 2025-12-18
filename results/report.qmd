@@ -1,11 +1,7 @@
 ---
 title: Regression Models Competition
 author: Outliers
-format: 
-  html:
-    echo: false
-    fig-width: 7
-    fig-height: 7
+format: pdf
 ---
 
 ```{r}
@@ -166,8 +162,10 @@ Motivation for this is...
 ::: {#fig-highest-correlated-numerical}
 
 ```{r}
-plot(grafico_correlaciones_precio_predictores)
+# plot(grafico_correlaciones_precio_predictores)
 ```
+
+{{< placeholder 300 200 >}}
 
 Top 10 numerical variables with correlation.
 :::
@@ -178,8 +176,10 @@ We shift our focus now to categorical variables.
 ::: {#fig-categorical-correlations}
 
 ```{r}
-plot(grafico_correlaciones_categoricas)
+# plot(grafico_correlaciones_categoricas)
 ```
+
+{{< placeholder 300 200 >}}
 
 Correlation `SalePrice` and the categorical variables `OverallQual`, `Neighborhood`, `ExterQual` and `KitchenQual`.
 :::
@@ -195,8 +195,10 @@ The `SalePrice` variable has also been included in the plot.
 
 :::{#fig-heatmap-categorical}
 ```{r}
-plot(graficos_heatmap_correlation)
+# plot(graficos_heatmap_correlation)
 ```
+
+{{< placeholder 300 200 >}}
 
 Correlation heatmap between the quality-related categorical variables.
 :::
@@ -212,8 +214,10 @@ Kitchen quality and exterior quality also tends to be categorized in "Typical/Av
 
 :::{#fig-highly-correlated-pairs}
 ```{r}
-plot(graficos_pares_altamente_correlacionados)
+# plot(graficos_pares_altamente_correlacionados)
 ```
+
+{{< placeholder 300 200 >}}
 
 Pairs of highly correlated variables.
 :::
@@ -224,12 +228,14 @@ This shows that values are left-skewed.
 On the other hand, the exterior condition seems to have a minor impact on sale prices, since many of the values seem to be agglomerated in the "Typical/Average" or the "Good" categories.
 
 This analysis can be extended to the rest of the categorical variables.
-@fig-fig-median-price-by-level shows the relationship between prices and the category levels by the use of the median for each level (less affected by outliers).
+@fig-median-price-by-level shows the relationship between prices and the category levels by the use of the median for each level (less affected by outliers).
 
 :::{#fig-median-price-by-level}
 ```{r}
-grafico_median_price_by_level
+# plot(grafico_median_price_by_level)
 ```
+
+{{< placeholder 300 200 >}}
 
 Median price by level for the 10 most correlated variables.
 :::
@@ -246,9 +252,92 @@ After this analysis, we decided to remove the `GarageCond`, `ExterCond` and `Ext
 
 ### Missing values
 
+We focus now on missing values on the remaining variables.
+@fig-missing-values shows those remaining with any of them.
 
+:::{#fig-missing-values}
+```{r}
+# plot(missing_values)
+```
+
+{{< placeholder 300 200 >}}
+
+Percentage of missing values across the remaining variables.
+:::
+
+`LotFrontage` is the variable with the highest number of missing values, likely due to the fact that measuring this value was not always possible.
+`Electrical`, `MasVnrArea` and `MasVnrType` show a small percentage of missing values.
+In particular `MasVnrArea` and `MasVnrType` have the exact same number of missing values, which raises the question: are they always misssing at the same time?
+
+::: {#fig-distribution-of-missing-values layout-ncol=2}
+```{r}
+# plot(graficos_vis_miss)
+```
+
+{{< placeholder 300 200 >}}
+
+```{r}
+# plot(graficos_missing_upset)
+```
+
+{{< placeholder 300 200 >}}
+
+Distribution of missing values.
+:::
+
+Indeed, @fig-distribution-of-missing-values shows that the two variables are missing for the same indices.
+In the case of `LotFrontage`, there might be a hidden pattern difficult to see at first, glance, thus @fig-missing-grouped.
+
+::: {#fig-missing-grouped layout-ncol=2}
+```{r}
+# plot(graficos_missing_neighborhood)
+```
+
+{{< placeholder 300 200 >}}
+
+```{r}
+# plot(graficos_missing_lotshape)
+```
+
+{{< placeholder 300 200 >}}
+
+Missing values grouped by neighborhood and by lot shape.
+No clear pattern can be established from them.
+:::
+
+Since there is still no apparent behavior, the final question before removing it is if it affects the price sales.
+First, @fig-lots-compared shows that the variable `LotArea` is not affected by the missing values in `LotFrontage`.
+
+::: {#fig-lots-compared}
+```{r}
+# plot(graficos_missing_lotfrontage)
+```
+
+{{< placeholder 300 200 >}}
+
+Distribution of the lot area grouped by the lot frontage availability.
+Distributions are similar, so there is no bias in missingness.
+:::
+
+What about prices?
+@fig-prices-by-missingness shows that there is a quantifyiable difference between the two groups, best represented by their means (`r round((172400/159500 - 1) * 100)`% higher in the case with missing values).
+
+::: {#fig-prices-by-missingness}
+```{r}
+# plot(graficos_missing_price)
+```
+
+{{< placeholder 300 200 >}}
+
+Distribution of prices grouped by values missing or not.
+Observations with missing values have a higher median, which cannot be ignored.
+:::
+
+Since the variable cannot be ignored (it has an effect on sale prices), imputation was required.
 
 ## Data Preprocessing
+
+
 
 ## Variable Selection {#sec-var-selection}
 

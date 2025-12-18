@@ -847,21 +847,27 @@ data_pisos_test <- data_pisos_test %>%
 # SECCIÓN 11: ANÁLISIS DETALLADO DE VALORES FALTANTES ------
 # -----------------------------------------------------------------
 
+
+
+
+
+library(ggview)
+
 ## 11.1. Visualización general de missings
-plot_missing(data_pisos_train)
+missing_values = plot_missing(data_pisos_train, missing_only = TRUE)
 
 # Patrón de valores faltantes
-vis_miss(data_pisos_train, warn_large_data = FALSE) +
+graficos_vis_miss = vis_miss(data_pisos_train, warn_large_data = FALSE) +
   labs(
     title = "Missing Value Pattern in Training Set",
     subtitle = "Visual overview of missing data across all variables"
   )
 
 # Intersecciones de patrones de faltantes
-gg_miss_upset(data_pisos_train, nsets = 5, nintersects = 10)
+graficos_missing_upset = gg_miss_upset(data_pisos_train, nsets = 5, nintersects = 10)
 
 # LotFrontage missingness by Neighborhood
-data_pisos_train |>
+graficos_missing_neighborhood = data_pisos_train |>
   mutate(LotFrontage_missing = is.na(LotFrontage)) |>
   ggplot(aes(x = Neighborhood, fill = LotFrontage_missing)) +
   geom_bar(position = "fill") +
@@ -881,7 +887,7 @@ data_pisos_train |>
 
 
 # LotFrontage missingness by LotShape
-data_pisos_train |>
+graficos_missing_lotshape = data_pisos_train |>
   mutate(LotFrontage_missing = is.na(LotFrontage)) |>
   count(LotShape, LotFrontage_missing) |>
   group_by(LotShape) |>
@@ -908,7 +914,7 @@ data_pisos_train |>
   theme_minimal()
 
 # LotArea distribution by LotFrontage missingness
-data_pisos_train |>
+graficos_missing_lotfrontage = data_pisos_train |>
   mutate(
     LotFrontage_status = ifelse(is.na(LotFrontage), "Missing", "Present")
   ) |>
@@ -927,7 +933,7 @@ data_pisos_train |>
 
 
 # SalePrice distribution by LotFrontage missingness
-data_pisos_train |>
+graficos_missing_price = data_pisos_train |>
   mutate(
     LotFrontage_status = ifelse(is.na(LotFrontage), "Missing", "Present")
   ) |>
