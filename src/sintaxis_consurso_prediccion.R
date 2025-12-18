@@ -8,7 +8,7 @@ if (!require("pacman")) {
 }
 
 pacman::p_load(
-  car, 
+  car,
   caret,
   corrplot,
   DataExplorer,
@@ -256,21 +256,21 @@ plot_data <- data_pisos |>
 p1 <- ggplot(plot_data, aes(x = TotalSF, y = SalePrice)) +
   geom_point(alpha = 0.4, color = "steelblue") +
   geom_smooth(method = "lm", color = "red", se = TRUE) +
-  labs(title = "TotalSF vs SalePrice", subtitle = "Correlación: 0.78") +
+  labs(title = "TotalSF vs SalePrice", subtitle = "Correlation: 0.78") +
   theme_minimal()
 
 # Gráfico 2: TotalBath vs SalePrice
 p2 <- ggplot(plot_data, aes(x = TotalBath, y = SalePrice)) +
   geom_point(alpha = 0.4, color = "darkgreen") +
   geom_smooth(method = "lm", color = "red", se = TRUE) +
-  labs(title = "TotalBath vs SalePrice", subtitle = "Correlación: 0.63") +
+  labs(title = "TotalBath vs SalePrice", subtitle = "Correlation: 0.63") +
   theme_minimal()
 
 # Gráfico 3: HouseAge vs SalePrice
 p3 <- ggplot(plot_data, aes(x = HouseAge, y = SalePrice)) +
   geom_point(alpha = 0.4, color = "purple") +
   geom_smooth(method = "lm", color = "red", se = TRUE) +
-  labs(title = "HouseAge vs SalePrice", subtitle = "Correlación: -0.52") +
+  labs(title = "HouseAge vs SalePrice", subtitle = "Correlation: -0.52") +
   theme_minimal()
 
 # Comparación: GrLivArea original vs TotalSF
@@ -280,11 +280,11 @@ p4 <- data_pisos |>
   geom_smooth(method = "lm", color = "red", se = TRUE) +
   labs(
     title = "GrLivArea vs SalePrice (Original)",
-    subtitle = "Correlación: 0.71"
+    subtitle = "Correlation: 0.71"
   ) +
   theme_minimal()
 
-grid.arrange(p1, p4, p2, p3, ncol = 2)
+plot_correlation_newvars = grid.arrange(p1, p4, p2, p3, ncol = 2)
 
 
 # ----------------------------------------------------------------------------
@@ -467,41 +467,48 @@ p1 <- data_pisos_train |>
   scale_x_continuous(labels = scales::dollar) +
   labs(
     title = "SalePrice Distribution",
-    subtitle = "Right-skewed distribution",
-    x = "Sale Price",
-    y = "Count"
+    # subtitle = "Right-skewed distribution",
+    x = "",
+    y = ""
   ) +
   theme_minimal()
 
-# Gráfico 2: Histograma escala logarítmica (más normal)
+# Gráfico 2: Q-Q plot escala normal
 p2 <- data_pisos_train |>
+  ggplot(aes(sample = SalePrice)) +
+  stat_qq(color = "steelblue", alpha = 0.7) +
+  stat_qq_line(color = "black", linewidth = .5) +
+  labs(
+    title = "Q-Q Plot: SalePrice",
+    # subtitle = "Heavy right tail visible",
+    x = "",
+    y = "" 
+  ) +
+  theme_minimal()
+
+# Gráfico 3: Histograma escala logarítmica (más normal)
+p3 <- data_pisos_train |>
   ggplot(aes(x = SalePrice)) +
   geom_histogram(bins = 50, fill = "coral", alpha = 0.7, color = "white") +
   scale_x_log10(labels = scales::dollar) +
   labs(
-    title = "SalePrice Distribution (log scale)",
-    subtitle = "More normal after log transformation",
-    x = "Sale Price (log)",
-    y = "Count"
+    title = "log(SalePrice) Disrtibution",
+    # subtitle = "More normal after log transformation",
+    x = "",
+    y = ""
   ) +
-  theme_minimal()
-
-# Gráfico 3: Q-Q plot escala normal
-p3 <- data_pisos_train |>
-  ggplot(aes(sample = SalePrice)) +
-  stat_qq(color = "steelblue", alpha = 0.7) +
-  stat_qq_line(color = "red", linewidth = 1) +
-  labs(title = "Q-Q Plot: SalePrice", subtitle = "Heavy right tail visible") +
   theme_minimal()
 
 # Gráfico 4: Q-Q plot escala logarítmica
 p4 <- data_pisos_train |>
   ggplot(aes(sample = log(SalePrice))) +
   stat_qq(color = "coral", alpha = 0.7) +
-  stat_qq_line(color = "red", linewidth = 1) +
+  stat_qq_line(color = "black", linewidth = .5) +
   labs(
     title = "Q-Q Plot: log(SalePrice)",
-    subtitle = "Closer to normal distribution"
+    # subtitle = "Closer to normal distribution",
+    x = "",
+    y = "" 
   ) +
   theme_minimal()
 
@@ -562,7 +569,7 @@ p1 <- data_pisos_train |>
   scale_fill_viridis_d() +
   labs(
     title = "SalePrice by Overall Quality",
-    subtitle = "Clear positive relationship",
+    # subtitle = "Clear positive relationship",
     x = "Overall Quality (1-10)",
     y = "Sale Price"
   ) +
@@ -582,7 +589,7 @@ p2 <- data_pisos_train |>
   coord_flip() +
   labs(
     title = "SalePrice by Neighborhood",
-    subtitle = "High variability across locations",
+    # subtitle = "High variability across locations",
     x = NULL,
     y = "Sale Price"
   ) +
@@ -614,7 +621,7 @@ p4 <- data_pisos_train |>
   ) +
   theme_minimal()
 
-grid.arrange(p1, p2, p3, p4, ncol = 2)
+grafico_correlaciones_categoricas = grid.arrange(p1, p2, p3, p4, ncol = 2)
 
 ## 9.2. Identificar variables categóricas redundantes mediante correlación
 
@@ -653,7 +660,7 @@ quality_numeric <- data_pisos_train |>
 # Matriz de correlaciones entre variables de calidad
 cor_quality <- cor(quality_numeric, use = "complete.obs")
 
-pheatmap(
+graficos_heatmap_correlation = pheatmap(
   cor_quality,
   cluster_rows = FALSE,
   cluster_cols = FALSE,
@@ -731,7 +738,7 @@ p4 <- data_pisos_train |>
   ) +
   theme_minimal()
 
-grid.arrange(p1, p2, p3, p4, ncol = 2)
+graficos_pares_altamente_correlacionados = grid.arrange(p1, p2, p3, p4, ncol = 2)
 
 ## 9.4. Top variables categóricas por correlación con precio
 top_categorical_vars <- c(
@@ -794,7 +801,7 @@ median_prices <- median_prices |>
   )
 
 # Plot: Median price by level for top categorical variables
-ggplot(
+grafico_median_price_by_level = ggplot(
   median_prices,
   aes(x = level_plot, y = median_price, fill = variable)
 ) +
@@ -3784,3 +3791,12 @@ preds_final <- exp(preds_log_blend)
 
 submission <- data.frame(Id = test_ids, SalePrice = as.numeric(preds_final))
 # write.csv(submission, "submission_GOD_MODE_LASSO_SELECTED.csv", row.names = FALSE)
+
+save(
+  plot_correlation_newvars,
+  graficos_variables_eliminar_sinvariabilidad,
+  grafico_exploratorio_respuesta,
+  grafico_correlaciones_precio_predictores,
+  grafico_correlaciones_categoricas,
+  file = "results/data.RData"
+)
