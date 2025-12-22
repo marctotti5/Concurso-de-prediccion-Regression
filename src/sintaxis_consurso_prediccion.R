@@ -39,6 +39,20 @@ pacman::p_load(
   tidyverse
 )
 
+save_small = function(var, name) {
+  name = paste0("/home/edugambin/Documents/reg/Concurso-de-prediccion-Regression/results/images/", name)
+  ggsave(name, var, width = 8, height = 4)
+}
+
+save_big = function(var, name) {
+  name = paste0("/home/edugambin/Documents/reg/Concurso-de-prediccion-Regression/results/images/", name)
+  ggsave(name, var, width = 8, height = 6)
+}
+
+save_square = function(var, name) {
+  name = paste0("/home/edugambin/Documents/reg/Concurso-de-prediccion-Regression/results/images/", name)
+  ggsave(name, var, width = 4, height = 4)
+}
 
 ## 1.2. Definir operador personalizado
 `%notin%` <- Negate("%in%")
@@ -466,12 +480,12 @@ p1 <- data_pisos_train |>
   geom_histogram(bins = 50, fill = "steelblue", alpha = 0.7, color = "white") +
   scale_x_continuous(labels = scales::dollar) +
   labs(
-    title = "SalePrice Distribution",
+    # title = "SalePrice Distribution",
     # subtitle = "Right-skewed distribution",
-    x = "",
-    y = ""
+    x = "SalePrice",
+    y = "Absolute Frequency"
   ) +
-  theme_minimal()
+  theme_minimal()+ theme(rect = element_rect(fill = "transparent"))
 
 # Gráfico 2: Q-Q plot escala normal
 p2 <- data_pisos_train |>
@@ -479,12 +493,12 @@ p2 <- data_pisos_train |>
   stat_qq(color = "steelblue", alpha = 0.7) +
   stat_qq_line(color = "black", linewidth = .5) +
   labs(
-    title = "Q-Q Plot: SalePrice",
+    # title = "Q-Q Plot: SalePrice",
     # subtitle = "Heavy right tail visible",
-    x = "",
-    y = "" 
+    x = "Theoretical Quantiles",
+    y = "SalePrice" 
   ) +
-  theme_minimal()
+  theme_minimal() + theme(rect = element_rect(fill = "transparent"))
 
 # Gráfico 3: Histograma escala logarítmica (más normal)
 p3 <- data_pisos_train |>
@@ -492,12 +506,12 @@ p3 <- data_pisos_train |>
   geom_histogram(bins = 50, fill = "coral", alpha = 0.7, color = "white") +
   scale_x_log10(labels = scales::dollar) +
   labs(
-    title = "log(SalePrice) Disrtibution",
+    # title = "log(SalePrice) Disrtibution",
     # subtitle = "More normal after log transformation",
-    x = "",
-    y = ""
+    x = "log(SalePrice)",
+    y = "Absolute Freqency"
   ) +
-  theme_minimal()
+  theme_minimal()+ theme(rect = element_rect(fill = "transparent"))
 
 # Gráfico 4: Q-Q plot escala logarítmica
 p4 <- data_pisos_train |>
@@ -505,14 +519,19 @@ p4 <- data_pisos_train |>
   stat_qq(color = "coral", alpha = 0.7) +
   stat_qq_line(color = "black", linewidth = .5) +
   labs(
-    title = "Q-Q Plot: log(SalePrice)",
+    # title = "Q-Q Plot: log(SalePrice)",
     # subtitle = "Closer to normal distribution",
-    x = "",
-    y = "" 
+    x = "Theoretical Quantiles",
+    y = "log(SalePrice)" 
   ) +
-  theme_minimal()
+  theme_minimal()+ theme(rect = element_rect(fill = "transparent"))
 
 grafico_exploratorio_respuesta <- grid.arrange(p1, p2, p3, p4, ncol = 2)
+
+save_square(p1, "LogSalePrice-p1.svg")
+save_square(p2, "LogSalePrice-p2.svg")
+save_square(p3, "LogSalePrice-p3.svg")
+save_square(p4, "LogSalePrice-p4.svg")
 
 
 ## 8.2. Correlaciones: variables numéricas con SalePrice
@@ -549,6 +568,8 @@ grafico_correlaciones_precio_predictores <- ggplot(
   ) +
   theme_minimal() +
   theme(panel.grid.major.y = element_blank())
+
+save_small(grafico_correlaciones_precio_predictores, "top-correlation.svg")
 
 
 # -----------------------------------------------------------------
@@ -622,6 +643,7 @@ p4 <- data_pisos_train |>
   theme_minimal()
 
 grafico_correlaciones_categoricas = grid.arrange(p1, p2, p3, p4, ncol = 2)
+save_big(grafico_correlaciones_categoricas, "corr_cat.svg")
 
 ## 9.2. Identificar variables categóricas redundantes mediante correlación
 
@@ -667,12 +689,14 @@ graficos_heatmap_correlation = pheatmap(
   display_numbers = TRUE,
   number_format = "%.2f",
   fontsize_number = 10,
-  color = colorRampPalette(c("blue", "white", "red"))(100),
+  color = colorRampPalette(c("steelblue", "white", "coral"))(100),
   main = "Correlations: Categorical variables related to quality",
   fontsize_row = 8,
   breaks = seq(-1, 1, length.out = 101),
   legend_breaks = c(-1, -0.5, 0, 0.5, 1)
 )
+
+save_big(graficos_heatmap_correlation, "correlation-heatmap.pdf")
 
 ## 9.3. Visualizar pares altamente correlacionados
 
@@ -947,21 +971,22 @@ graficos_missing_price = data_pisos_train |>
     fun = median,
     geom = "text",
     aes(label = paste0("$", scales::comma(..y.., accuracy = 1))),
-    position = position_nudge(y = 0.15),
+    position = position_nudge(y = 0.04),
     size = 4,
     fontface = "bold"
   ) +
-  scale_fill_manual(values = c("red3", "gray70")) +
+  scale_fill_manual(values = c("coral", "steelblue")) +
   scale_y_log10(labels = scales::dollar) +
   labs(
-    title = "SalePrice Distribution by LotFrontage Availability",
-    subtitle = "Missing LotFrontage has slightly HIGHER median price → not ignorable",
+    # title = "SalePrice Distribution by LotFrontage Availability",
+    # subtitle = "Missing LotFrontage has slightly HIGHER median price → not ignorable",
     y = "SalePrice (log scale)",
     x = "LotFrontage Status"
   ) +
   theme_minimal() +
   theme(legend.position = "none")
 
+save_small(graficos_missing_price, "missing_lotfrontage_impact.svg")
 
 # -----------------------------------------------------------------------------
 # SECCIÓN 12: IMPUTACIÓN ROBUSTA ------
@@ -1001,6 +1026,24 @@ impute_unified <- mice(
   data_full_imputation %>% dplyr::select(-is_test, -Id),
   m = 1,
   method = "rf", # Random Forest es robusto para esto
+## ----------------------------------------------------------------------------------------------------------
+# SECCIÓN 13: DIAGNÓSTICO DE INFLUENTIAL POINTS ------
+## ----------------------------------------------------------------------------------------------------------
+
+# Ajustar modelo preliminar para diagnóstico (usando solo numéricas)
+numeric_data_diag <- data_pisos_train_imputed %>%
+  dplyr::select(where(is.numeric))
+model_diag <- lm(SalePrice ~ ., data = numeric_data_diag)
+
+diagnostics <- data_pisos_train_imputed %>%
+  mutate(
+    # Residuos Estandarizados: Detectan outliers en la variable respuesta (Y).
+    # Regla: Valor absoluto > 3 indica outlier.
+    std_resid = rstandard(model_diag),
+
+    # Distancia de Cook: Detecta observaciones influyentes (combinación de outlier + leverage).
+    # Mide cuánto cambiaría el modelo si se elimina la observación.
+    cooks_d = cooks.distance(model_diag),
   ignore = ignore_vec,
   maxit = 5,
   seed = 123,
@@ -1029,24 +1072,6 @@ print("¡Imputación finalizada sin Data Leakage!")
 print(paste("NAs en Train:", sum(is.na(data_pisos_train_imputed))))
 print(paste("NAs en Test:", sum(is.na(data_pisos_test_imputed))))
 
-## ----------------------------------------------------------------------------------------------------------
-# SECCIÓN 13: DIAGNÓSTICO DE INFLUENTIAL POINTS ------
-## ----------------------------------------------------------------------------------------------------------
-
-# Ajustar modelo preliminar para diagnóstico (usando solo numéricas)
-numeric_data_diag <- data_pisos_train_imputed %>%
-  dplyr::select(where(is.numeric))
-model_diag <- lm(SalePrice ~ ., data = numeric_data_diag)
-
-diagnostics <- data_pisos_train_imputed %>%
-  mutate(
-    # Residuos Estandarizados: Detectan outliers en la variable respuesta (Y).
-    # Regla: Valor absoluto > 3 indica outlier.
-    std_resid = rstandard(model_diag),
-
-    # Distancia de Cook: Detecta observaciones influyentes (combinación de outlier + leverage).
-    # Mide cuánto cambiaría el modelo si se elimina la observación.
-    cooks_d = cooks.distance(model_diag),
 
     # Leverage (Hat values): Detecta valores inusuales en los predictores (X).
     hat_val = hatvalues(model_diag)
@@ -1062,14 +1087,14 @@ leverage_threshold <- 2 * (k + 1) / n # Leverage
 # Gráfico de Influencia vs Residuos: Los puntos rojos son los "peligrosos" (Alta influencia + Mal ajuste).
 p_diag <- ggplot(diagnostics, aes(x = hat_val, y = std_resid)) +
   geom_point(aes(color = cooks_d > cooks_threshold), alpha = 0.6) +
-  geom_hline(yintercept = c(-3, 3), linetype = "dashed", color = "red") +
+  geom_hline(yintercept = c(-3, 3), linetype = "dashed", color = "black") +
   geom_vline(
     xintercept = leverage_threshold,
-    linetype = "dashed",
-    color = "blue"
+    linetype = "dotted",
+    color = "black"
   ) +
   scale_color_manual(
-    values = c("black", "red"),
+    values = c("steelblue", "coral"),
     labels = c("Secure", "Influential")
   ) +
   labs(
@@ -1100,7 +1125,7 @@ p_val <- ggplot(diagnostics, aes(x = TotalSF, y = SalePrice)) +
     aes(linetype = "LM (all points)"),
     method = "lm",
     se = TRUE,
-    color = "black",
+    color = "goldenrod",
     linewidth = 0.9
   ) +
 
@@ -1115,13 +1140,13 @@ p_val <- ggplot(diagnostics, aes(x = TotalSF, y = SalePrice)) +
     method = "lm",
     se = TRUE,
     fullrange = TRUE,
-    color = "dodgerblue3",
+    color = "forestgreen",
     linewidth = 0.9
   ) +
 
   # Leyenda puntos (Cook's D)
   scale_color_manual(
-    values = c("FALSE" = "steelblue", "TRUE" = "red"),
+    values = c("FALSE" = "steelblue", "TRUE" = "coral"),
     name = "Cook's D > threshold"
   ) +
 
@@ -1142,7 +1167,8 @@ p_val <- ggplot(diagnostics, aes(x = TotalSF, y = SalePrice)) +
   theme_minimal()
 
 
-grid.arrange(p_diag, p_val, ncol = 2)
+influential_points = grid.arrange(p_diag, p_val, ncol = 2)
+save_big(influential_points, "influential.pdf")
 
 # Identificar candidatos a eliminar
 # Nos centramos en los que son Influyentes (Cook alto) Y además tienen residuo alto.
@@ -1161,8 +1187,10 @@ print(outliers_to_remove)
 # our previous filtering makes sense.
 
 # 1. Standard Diagnostic Plot
+pdf(file = "/home/edugambin/Documents/reg/Concurso-de-prediccion-Regression/results/images/diagnostics.pdf", width = 8, height = 6)
 par(mfrow = c(2, 2))
-plot(model_diag, main = "Base R Diagnostics")
+plot(model_diag)
+dev.off()
 par(mfrow = c(1, 1)) # Reset layout
 
 # 2. Influence Measures Table
@@ -2863,6 +2891,13 @@ print(paste("RMSE Forward:", round(rmse_fwd, 4)))
 # -----------------------------------------------------------------------------
 # TABLA FINAL DE BENCHMARK - RMSE
 # -----------------------------------------------------------------------------
+
+
+
+
+
+
+
 
 # Recopilamos los RMSE de validación de todos los modelos entrenados
 results_complete <- data.frame(

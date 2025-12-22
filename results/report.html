@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.8.26">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="author" content="Outliers">
+
+<title>Regression Models Competition</title>
+<style>
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+</style>
+
+
+<script src="report_files/libs/clipboard/clipboard.min.js"></script>
+<script src="report_files/libs/quarto-html/quarto.js" type="module"></script>
+<script src="report_files/libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="report_files/libs/quarto-html/axe/axe-check.js" type="module"></script>
+<script src="report_files/libs/quarto-html/popper.min.js"></script>
+<script src="report_files/libs/quarto-html/tippy.umd.min.js"></script>
+<script src="report_files/libs/quarto-html/anchor.min.js"></script>
+<link href="report_files/libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="report_files/libs/quarto-html/quarto-syntax-highlighting-587c61ba64f3a5504c4d52d930310e48.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="report_files/libs/bootstrap/bootstrap.min.js"></script>
+<link href="report_files/libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="report_files/libs/bootstrap/bootstrap-9e3ffae467580fdb927a41352e75a2e0.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+
+  <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+const typesetMath = (el) => {
+  if (window.MathJax) {
+    // MathJax Typeset
+    window.MathJax.typeset([el]);
+  } else if (window.katex) {
+    // KaTeX Render
+    var mathElements = el.getElementsByClassName("math");
+    var macros = [];
+    for (var i = 0; i < mathElements.length; i++) {
+      var texText = mathElements[i].firstChild;
+      if (mathElements[i].tagName == "SPAN" && texText && texText.data) {
+        window.katex.render(texText.data, mathElements[i], {
+          displayMode: mathElements[i].classList.contains('display'),
+          throwOnError: false,
+          macros: macros,
+          fleqn: false
+        });
+      }
+    }
+  }
+}
+window.Quarto = {
+  typesetMath
+};
+</script>
+
+</head>
+
+<body class="fullcontent quarto-light">
+
+<div id="quarto-content" class="page-columns page-rows-contents page-layout-article">
+
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default">
+<div class="quarto-title">
+<h1 class="title">Regression Models Competition</h1>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    <div>
+    <div class="quarto-title-meta-heading">Author</div>
+    <div class="quarto-title-meta-contents">
+             <p>Outliers </p>
+          </div>
+  </div>
+    
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<section id="executive-summary" class="level2" data-number="1">
+<h2 data-number="1" class="anchored" data-anchor-id="executive-summary"><span class="header-section-number">1</span> Executive Summary</h2>
+<p>This report outlines the development of a predictive model for residential home prices in Ames, Iowa. The objective was to minimize the Root Mean Squared Error (RMSE) between the predicted logarithm of the sale price and the actual values.</p>
+<p>Our analysis proceeded through data cleaning, feature engineering, and the implementation of regularized linear regression models (Ridge, Lasso, and ElasticNet). The final selected approach is an ensemble of these three models, which provides robust predictions by balancing bias and variance. Key drivers of price were identified as the total square footage, overall quality, and neighborhood location.</p>
+</section>
+<section id="introduction-objectives" class="level2" data-number="2">
+<h2 data-number="2" class="anchored" data-anchor-id="introduction-objectives"><span class="header-section-number">2</span> Introduction &amp; Objectives</h2>
+<p>The goal of this project is to predict the final sale price of homes based on 79 explanatory variables describing (almost) every aspect of residential homes. Anything studied during the course could be used to create the models, but more advanced techniques were out of the scope.</p>
+<p>The specific objectives were:</p>
+<ol type="1">
+<li>Perform Exploratory Data Analysis (EDA) to understand variable distributions and relationships.</li>
+<li>Clean the data by handling missing values and outliers.</li>
+<li>Engineer new features to capture latent information.</li>
+<li>Train and validate predictive models using cross-validation.</li>
+<li>Identify the characteristics of the most and least expensive houses.</li>
+</ol>
+</section>
+<section id="exploratory-data-analysis-eda" class="level2" data-number="3">
+<h2 data-number="3" class="anchored" data-anchor-id="exploratory-data-analysis-eda"><span class="header-section-number">3</span> Exploratory Data Analysis (EDA)</h2>
+<section id="preliminary-steps" class="level3" data-number="3.1">
+<h3 data-number="3.1" class="anchored" data-anchor-id="preliminary-steps"><span class="header-section-number">3.1</span> Preliminary steps</h3>
+<p>Right away from reading the data, we imputed the missing categories as the feature being missing. In <a href="#sec-imputation-strategy" class="quarto-xref">Section&nbsp;4.1</a> we deglose the process in more detail, but it was important to mention this beforehand.</p>
+<p>In the same spirit, since we were clear that many of the available variables were correlated and redundant, we created a handful of interest variables from the beginning to include them in the EDA (refer to <a href="#sec-feature-engineer" class="quarto-xref">Section&nbsp;4.2</a> for a detailed explanation them).</p>
+</section>
+<section id="analysis-of-the-target-variable-saleprice" class="level3" data-number="3.2">
+<h3 data-number="3.2" class="anchored" data-anchor-id="analysis-of-the-target-variable-saleprice"><span class="header-section-number">3.2</span> Analysis of the Target Variable (<code>SalePrice</code>)</h3>
+<p>We began by analyzing the distribution of the dependent variable, <code>SalePrice</code>. The initial histogram (see <a href="#fig-sale-price" class="quarto-xref">Figure&nbsp;1</a>) revealed a significant right skew, indicating that while most homes are moderately priced, there are a few very expensive properties that stretch the distribution.</p>
+<div id="fig-sale-price" class="quarto-layout-panel">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-sale-price-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<div class="quarto-layout-row">
+<div class="quarto-layout-cell" style="flex-basis: 50.0%;justify-content: flex-start;">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="images/LogSalePrice-p1.svg" class="img-fluid figure-img"></p>
+<figcaption>Histogram of SalePrice</figcaption>
+</figure>
+</div>
+</div>
+<div class="quarto-layout-cell" style="flex-basis: 50.0%;justify-content: flex-start;">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="images/LogSalePrice-p2.svg" class="img-fluid figure-img"></p>
+<figcaption>Q-Q plot of SalePrice</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div class="quarto-layout-row">
+<div class="quarto-layout-cell" style="flex-basis: 50.0%;justify-content: flex-start;">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="images/LogSalePrice-p3.svg" class="img-fluid figure-img"></p>
+<figcaption>Histogram of log(SalePrice)</figcaption>
+</figure>
+</div>
+</div>
+<div class="quarto-layout-cell" style="flex-basis: 50.0%;justify-content: flex-start;">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="images/LogSalePrice-p4.svg" class="img-fluid figure-img"></p>
+<figcaption>Q-Q plot of log(SalePrice)</figcaption>
+</figure>
+</div>
+</div>
+</div>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-sale-price-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;1: Distribution analysis on the response variable. Original is left-skewed, whereas the log-transformed resembles a normal distribution.
+</figcaption>
+</figure>
+</div>
+<p>To address this non-normality and satisfy the assumptions of linear regression, we applied a logarithmic transformation (<code>log(SalePrice)</code>). This resulted in a distribution that much closely approximates a normal curve, as confirmed by the Q-Q plots generated during analysis (again, see <a href="#fig-sale-price" class="quarto-xref">Figure&nbsp;1</a>).</p>
+</section>
+<section id="correlation-analysis" class="level3" data-number="3.3">
+<h3 data-number="3.3" class="anchored" data-anchor-id="correlation-analysis"><span class="header-section-number">3.3</span> Correlation Analysis</h3>
+<p>We examined the correlation between numerical predictors and the sale price. The variables with the highest positive correlation were <code>TotalSF</code> (aggregation of the existing area-related variables), <code>TotalBath</code> (weighted-aggregation of the bathrooms and half bathrooms of the house), and <code>GarageCars</code> (size of the garage measured in cars). As an important mark, we used Spearman’s rank correlation coefficient, since it is not affected by monotonic transformations such as the logarithm. See <a href="#fig-top-correlation" class="quarto-xref">Figure&nbsp;2</a> for more details.</p>
+<div id="fig-top-correlation" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-top-correlation-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="images/top-correlation.svg" class="img-fluid figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-top-correlation-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;2: The ten highest correlated variables with the <code>SalePrice</code> using Spearman’s rank correlation coefficient.
+</figcaption>
+</figure>
+</div>
+<p>We also investigated categorical variables. Boxplots of <code>SalePrice</code> against <code>Neighborhood</code> showed significant variation in median prices, confirming that location is a critical determinant of value. Similarly, <code>OverallQual</code> showed a clear monotonic relationship with price. Interestingly, during our analysis, we also saw that <code>ExterQual</code> and <code>KitchenQual</code> are strongly related to an increment in price. See <a href="#fig-categorical" class="quarto-xref">Figure&nbsp;3</a> for more details.</p>
+<div id="fig-categorical" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-categorical-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="images/corr_cat.svg" class="img-fluid figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-categorical-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;3: Boxplots of several categorical variables against the sale price. Overall quality, neighborhood, exterior-material quality and kitchen quality are all related to an increase in price, each of them in different levels.
+</figcaption>
+</figure>
+</div>
+</section>
+<section id="missing-values-analysis" class="level3" data-number="3.4">
+<h3 data-number="3.4" class="anchored" data-anchor-id="missing-values-analysis"><span class="header-section-number">3.4</span> Missing Values Analysis</h3>
+<p>A detailed analysis of missing data revealed two distinct types of missingness:</p>
+<ol type="1">
+<li><strong>Structural Missingness:</strong> Variables like <code>Alley</code>, <code>PoolQC</code>, and <code>Fence</code> had high rates of missing values. However, the data dictionary implies that <code>NA</code> here effectively means “Feature Not Present” (e.g., No Alley access) rather than missing data. Therefore, these values were correctly imputed when reading the data.</li>
+<li><strong>Random Missingness:</strong> Variables like <code>LotFrontage</code> showed missingness patterns that required statistical imputation, since the median of the observations without value is higher than those with it (see <a href="#fig-missing-impact" class="quarto-xref">Figure&nbsp;4</a>). The other variables with missing values were <code>Electrical</code>, <code>MasVnrArea</code> and <code>MasVnrType</code>. These last two were an interesting case, since both were missing (and present) at the same time in each row, suggesting both measurements can be taken (or not) at the same time.</li>
+</ol>
+<div id="fig-missing-impact" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-missing-impact-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="images/missing_lotfrontage_impact.svg" class="img-fluid figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-missing-impact-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;4: Boxplot of the distribution of prices (in <span class="math inline">\(log\)</span> scale) grouped by the values of <code>LotFrontage</code> being missing or not. There is a non-trivial difference between both groups.
+</figcaption>
+</figure>
+</div>
+</section>
+</section>
+<section id="data-preprocessing-feature-engineering" class="level2" data-number="4">
+<h2 data-number="4" class="anchored" data-anchor-id="data-preprocessing-feature-engineering"><span class="header-section-number">4</span> Data Preprocessing &amp; Feature Engineering</h2>
+<section id="sec-imputation-strategy" class="level3" data-number="4.1">
+<h3 data-number="4.1" class="anchored" data-anchor-id="sec-imputation-strategy"><span class="header-section-number">4.1</span> Imputation Strategy</h3>
+<p>Based on the EDA, we implemented a two-tiered imputation strategy:</p>
+<ul>
+<li><strong>Categorical Encoding:</strong> For variables like <code>PoolQC</code>, <code>GarageType</code>, and <code>BsmtQual</code>, <code>NA</code> values were recoded to a explicit category (e.g., “No Pool”, “No Garage”) to preserve the information that the feature is missing. This was instructed in the problem statement, so this step was performed at the beginning, when reading the data. Note as well that variables such as <code>OverallQual</code> were converted into categorical, but this was not entirely required since it could have been used as a numerical predictor as well.</li>
+<li><strong>Statistical Imputation:</strong> Remaining missing values in numerical columns were handled using statistical methods to ensure the model could utilize all available records. Specifically, they were imputed using the MICE algorithm (Multivariate Imputation by Chained-Equations) with Random Forest. To ensure robustness and prevent data leakage, the imputation model was trained exclusively on the training data while applying the learned patterns to complete the test set.</li>
+</ul>
+</section>
+<section id="sec-feature-engineer" class="level3" data-number="4.2">
+<h3 data-number="4.2" class="anchored" data-anchor-id="sec-feature-engineer"><span class="header-section-number">4.2</span> Feature Engineering</h3>
+<p>To improve model interpretability and performance, we created several composite variables:</p>
+<ul>
+<li><strong><code>TotalSF</code> (Total Square Footage):</strong> We combined <code>TotalBsmtSF</code> and <code>GrLivArea</code> to create a single metric for the size of the house. This variable proved to have a higher correlation with price than its individual components.</li>
+<li><strong><code>TotalBath</code>:</strong> We aggregated full and half baths (both above ground and basement) into a single count.</li>
+<li><strong><code>HouseAge</code> &amp; <code>YearsSinceRemod</code>:</strong> We converted <code>YearBuilt</code> and <code>YearRemodAdd</code> into age variables relative to the year sold, which captures depreciation more effectively than raw years.</li>
+<li><strong><code>TotalPorchSF</code>:</strong> Summed the area of all decks and porches.</li>
+</ul>
+</section>
+<section id="variable-selection" class="level3" data-number="4.3">
+<h3 data-number="4.3" class="anchored" data-anchor-id="variable-selection"><span class="header-section-number">4.3</span> Variable Selection</h3>
+<p>To reduce noise and multicollinearity, we performed the following cleaning steps:</p>
+<ul>
+<li><strong>Near Zero Variance (NZV) Removal:</strong> Variables with almost no variation (e.g., <code>Utilities</code> where 99.9% were “AllPub”, <code>Street</code>, and <code>PoolArea</code>) were removed as they provide no predictive power.</li>
+<li><strong>Redundancy Removal:</strong> Highly correlated features were removed. For instance, <code>GarageArea</code> was removed in favor of <code>GarageCars</code>, and <code>TotalBsmtSF</code> was removed as it is now included in <code>TotalSF</code>. <code>FullBath</code> in favor of <code>TotalBath</code>, etc.</li>
+</ul>
+<p>Note that for categorical variables a two-step feature selection was performed. First, we calculated a Cramer’s V matrix to detect multicollinearity. Second, we applied the Kruskal-Wallis test against (<span class="math inline">\(\log\)</span>-transformed) to evaluate feature importance, identifying and flagging variables that showed no statistically significant relationship (<span class="math inline">\(p &gt; 0.05\)</span>) with the target.</p>
+<p>Following this approach we remained with 44 predictors, which is still quite a large number. Moreover, since categorical variables are turned into dummy variables when creating the model, this number could grow rapidly. For this reason, we used model selection techniques, as described in the following section.</p>
+</section>
+</section>
+<section id="methodology-model-selection" class="level2" data-number="5">
+<h2 data-number="5" class="anchored" data-anchor-id="methodology-model-selection"><span class="header-section-number">5</span> Methodology (Model Selection)</h2>
+<p>We tested several models and chose the best among them, some of them being <strong>Regularized Linear Regression</strong> models. Given the high dimensionality of the dataset (many categorical variables turned into dummy variables) and the presence of multicollinearity, ordinary least-squares regression is prone to overfitting. Regularization introduces a penalty term to shrink coefficients, improving generalization.</p>
+<p>The tested models were:</p>
+<ol type="1">
+<li><strong>Ridge Regression:</strong> Penalizes the sum of squared coefficients. It shrinks coefficients but keeps all variables.</li>
+<li><strong>Lasso Regression:</strong> Penalizes the sum of absolute values of coefficients. It can force coefficients to zero, effectively performing feature selection.</li>
+<li><strong>ElasticNet:</strong> A compromise between Ridge and Lasso.</li>
+<li><strong>Principal Component Regression:</strong> Instead of regressing on the predictors directly, the principal components are used as regressors.</li>
+<li><strong><span class="math inline">\(k\)</span>-neighbors:</strong></li>
+<li><strong>GAM (splines):</strong></li>
+<li><strong>Linear with Forward Selection:</strong></li>
+<li><strong>Linear with Backwards Selection:</strong></li>
+</ol>
+<p>The spline approach was the most promising across the tested methods, producing the least RMSE (tested with cross-validation). PCR lost too much specific information in the components, and KNN struggled with the high dimensionality. None of the selection methods provided good metrics, so they were discarded.</p>
+<p>In the end however, we decided to go with a combination of Lasso, Ridge Regression and ElasticNet, weighting the output of each of them to produce the final one.</p>
+<section id="the-ensemble-approach" class="level3" data-number="5.1">
+<h3 data-number="5.1" class="anchored" data-anchor-id="the-ensemble-approach"><span class="header-section-number">5.1</span> The Ensemble Approach</h3>
+<p>Rather than relying on a single model, we constructed an <strong>Ensemble</strong> by averaging the predictions of the Ridge, Lasso, and ElasticNet models. Ensembling helps to cancel out the biases of individual models and typically yields a lower RMSE than any single model on its own.</p>
+</section>
+<section id="interaction-selection" class="level3" data-number="5.2">
+<h3 data-number="5.2" class="anchored" data-anchor-id="interaction-selection"><span class="header-section-number">5.2</span> Interaction selection</h3>
+<p>The models we have been building so far were only using predictors with no interactions between them. However, after some evaluation, we decided to use Lasso to select the best interactions among the possible, finding an interesting discovery in the process: quantity needs to be measured by quality.</p>
+<p>Every significant interaction follows this pattern. For example, the interaction between <code>TotalSF</code> and <code>OverallQual</code> was very significant, or the <code>OverallQual</code> and the <code>TotalBath</code>.</p>
+</section>
+</section>
+<section id="results-discussion" class="level2" data-number="6">
+<h2 data-number="6" class="anchored" data-anchor-id="results-discussion"><span class="header-section-number">6</span> Results &amp; Discussion</h2>
+<section id="goodness-of-fit" class="level3" data-number="6.1">
+<h3 data-number="6.1" class="anchored" data-anchor-id="goodness-of-fit"><span class="header-section-number">6.1</span> Goodness of Fit</h3>
+<!-- Aquí falta meter una buena discusión de los resultados, de las métricas que estamos usando y tal, de que suponemos que el error aumentará con el test porque siempre hay cierto overfitting, etc. -->
+</section>
+<section id="specific-questions-assessment" class="level3" data-number="6.2">
+<h3 data-number="6.2" class="anchored" data-anchor-id="specific-questions-assessment"><span class="header-section-number">6.2</span> Specific Questions Assessment</h3>
+<!-- Esto hay que reescribirlo para que se quede un poco mejor, el punto es que estaría bien responder a las preguntas que la profesora plantea en el enunciado. -->
+<p><strong>Q1: What is the variable that contributes the most to explain the variability in price?</strong> Based on our correlation analysis and the magnitude of coefficients in the Lasso model, <strong><code>TotalSF</code> (Total Square Footage)</strong> is the single most important predictor. It captures the size of the living area and basement, which is the primary driver of cost. <strong><code>OverallQual</code></strong> is the second most critical factor.</p>
+<p><strong>Q2: What are the characteristics of the cheapest/most expensive houses?</strong></p>
+<ul>
+<li><strong>Most Expensive:</strong> Characterized by high <code>OverallQual</code> (9-10), large <code>TotalSF</code> (&gt;4000 sq ft), recent construction (<code>HouseAge</code> &lt; 5 years), and location in neighborhoods like <em>NridgHt</em> or <em>StoneBr</em>. They almost always possess a 3-car garage and high-quality basement finishes.</li>
+<li><strong>Cheapest:</strong> Characterized by low <code>OverallQual</code> (1-4), lack of a garage (<code>GarageType</code> = “No Garage”), older age (<code>HouseAge</code> &gt; 50 years) without remodeling, and often possess the <code>Grav</code> (Gravel) alley access type or belong to the <em>MeadowV</em> neighborhood.</li>
+</ul>
+</section>
+</section>
+<section id="conclusion" class="level2" data-number="7">
+<h2 data-number="7" class="anchored" data-anchor-id="conclusion"><span class="header-section-number">7</span> Conclusion</h2>
+<!-- Conclusiones por mejorar -->
+<p>By rigorously cleaning the data, engineering relevant features like <code>TotalSF</code>, and utilizing an ensemble of regularized regression models, we created a robust tool for predicting house prices. The model confirms that while size and quality are paramount, the specific combination of location and amenities refines the final valuation. Future work could explore tree-based models (like XGBoost) to capture non-linear relationships that linear models might miss.</p>
+</section>
+
+</main>
+<!-- /main column -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+</div> <!-- /content -->
+
+
+
+
+</body></html>

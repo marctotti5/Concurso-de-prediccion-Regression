@@ -1,0 +1,28 @@
+---
+title: A predictive model for housing prices
+subtitle: Regression Model's Competition Report
+author:
+  - Eduardo Gambín Monserrat
+  - Ignacio Ortiz Serratosa
+  - Alejandro Treny Ortega
+  - Marc Pastor Pou
+  - Juan Ángel Pérez Córcoles
+format:
+  pdf:
+    documentclass: scrreprt
+    toc: true
+    number-sections: true
+    colorlinks: true
+---
+
+## Introduction
+
+## Exploratory Data Analysis
+
+## Data Processing & Feature Engineering
+
+## Dimensionality Reduction & Feature Selection
+
+## Modeling & Model Selection
+
+## Conclusions and Discussion

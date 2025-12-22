@@ -1,350 +1,235 @@
 ---
 title: Regression Models Competition
 author: Outliers
-format: pdf
+number-sections: true
+editor:
+  render-on-save: true
 ---
 
-```{r}
-load("data.RData")
-pacman::p_load(ggplot2, knitr)
-```
+## Executive Summary
 
-## Executive summary
+This report outlines the development of a predictive model for residential home
+prices in Ames, Iowa. The objective was to minimize the Root Mean Squared Error
+(RMSE) between the predicted logarithm of the sale price and the actual values.
 
-The objective of this assignment is to develop a predictor on the `SalesPrice` variable using regression.
-To do so, the objective is to build several regression models sing different techniques, and then choose the best among them.
-For this to be an efficient process, preprocessing and data filtering needs to be performed beforehand, including:
+Our analysis proceeded through data cleaning, feature engineering, and the
+implementation of regularized linear regression models (Ridge, Lasso, and
+ElasticNet). The final selected approach is an ensemble of these three models,
+which provides robust predictions by balancing bias and variance. Key drivers of
+price were identified as the total square footage, overall quality, and
+neighborhood location.
 
-- Correctly reading the dataset.
-- Removing irrelevant variables.
-- Detecting collinearity and remove variables accordingly.
-- Imputing the data.
-- Creating new variables with interesting information from the others.
+## Introduction & Objectives
 
-This will be properly explained later, on @sec-eda.
+The goal of this project is to predict the final sale price of homes based on 79
+explanatory variables describing (almost) every aspect of residential homes.
+Anything studied during the course could be used to create the models, but more
+advanced techniques were out of the scope.
 
-Among the produced models, the best we have be
+The specific objectives were:
 
-**_This part needs to be filled the last.._**
+1. Perform Exploratory Data Analysis (EDA) to understand variable distributions
+   and relationships.
+2. Clean the data by handling missing values and outliers.
+3. Engineer new features to capture latent information.
+4. Train and validate predictive models using cross-validation.
+5. Identify the characteristics of the most and least expensive houses.
 
-## Introduction & Problem Statement
+## Exploratory Data Analysis (EDA)
 
-### Dataset Context
+### Preliminary steps
 
-Two datasets were provided for this assignment, a training dataset (containing the `SalePrice` variable), and a test dataset (without the `SalePrice` variable).
-The former is used to train the models and to produce an estimation on the prediction power of the model, and the latter is only for testing purposes and to produce the predictions that need to be delivered along with this report.
-Unless stated otherwise, when the report mentions the `dataset`, it is understood to be only the training part of it.
+Right away from reading the data, we imputed the missing categories as the feature being missing. In @sec-imputation-strategy we deglose the process in more detail, but it was important to mention this beforehand.
 
-The dataset contains 79 explanatory variables (excluding the `ID` and the `SalePrice`) for approximately 1460 observations in the training set.
-These variables encompass a wide variety of property characteristics, ranging from physical attributes (e.g., `GrLivArea`, `TotalBsmtSF`) and quality assessments (e.g., `OverallQual`, `KitchenQual`) to situational factors (e.g., `Neighborhood`, `SaleCondition`).
+In the same spirit, since we were clear that many of the available variables were correlated and redundant, we created a handful of interest variables from the beginning to include them in the EDA (refer to @sec-feature-engineer for a detailed explanation them).
 
-### Objective and Evaluation Metric {#sec-objective-and-evaluation}
 
-The objective of this assignment is to build a robust predictive model for the `SalePrice` variable.
+### Analysis of the Target Variable (`SalePrice`)
 
-Housing prices naturally follow a right-skewed distribution, where a small number of expensive houses stretch the tail of the distribution, modeling the raw price can lead to violations of the normality assumption required for many statistical tests.
-Furthermore, in real estate valuation, relative errors are often more critical than absolute errors (e.g., a \$10,000 error is significant on a \$50,000 house but negligible on a \$500,000 house).
+We began by analyzing the distribution of the dependent variable, `SalePrice`.
+The initial histogram (see @fig-sale-price) revealed a significant right skew,
+indicating that while most homes are moderately priced, there are a few very
+expensive properties that stretch the distribution.
 
-To address this, and in accordance with the assignment guidelines, we aim to predict the logarithm of the sale price.
-Consequently, our primary metric for evaluating goodness of fit and predictive power will be the _Root Mean Squared Error_ (RMSE) between the logarithm of the predicted value and the logarithm of the observed sales price:
+:::{#fig-sale-price layout-ncol=2}
+![Histogram of SalePrice](images/LogSalePrice-p1.svg)
 
-$$
-\text{RMSE} = \sqrt{\frac{1}{n}\sum_{i=1}^n\bigl(\log (y_i) - \log( \hat{y}_i)\bigr)^2 }
-$$
+![Q-Q plot of SalePrice](images/LogSalePrice-p2.svg)
 
-Minimizing this value ensures our model performs well across cheap and expensive properties alike.
+![Histogram of log(SalePrice)](images/LogSalePrice-p3.svg)
 
-Other metrics that have also been considered for the analysis are:
+![Q-Q plot of log(SalePrice)](images/LogSalePrice-p4.svg)
 
-- **MAE:**
-- **R squared:**
-- **Adjusted R-squared:** Following the parsimonious assumption, simpler models are preferred over more complex ones if the increment on variability is not justified.
-- **AIC:**
 
-### Methodology
-
-To ensure the clarity and reproducibility of our results, our analysis follows a structured statistical workflow using strictly the techniques covered in this course:
-
-1. **Exploratory Data Analysis (EDA):** We begin by visualizing the target variable and analyzing correlations to identify potential predictors and outliers.
-2. **Data Preprocessing:** We address missing values (imputation) and encode categorical variables to prepare the data for linear modeling.
-3. **Variable Selection:** Given the high number of predictors, we employ selection techniques (e.g., Stepwise selection or Regularization) to reduce dimensionality and prevent overfitting.
-4. **Model Fitting & Validation:** We fit several candidate models and validate their performance using Out-of-Sample testing (Cross-Validation) to select the most parsimonious and accurate predictor.
-
-## Exploratory Data Analysis {#sec-eda}
-
-The dataset originally contained 79 variables, with mixed types of data.
-An initial cleaning was performed to correctly read them, and after observing them and their descriptions, we created a new set of variables, which can be seen in @tbl-newvars.
-
-::: {#tbl-newvars}
-
-| Variable | Type | Description |
-| :- | :- | :---- |
-| `TotalBath` | Continuous | The total number of bathrooms in the house, adding, above ground and in the basement. Since toilets are less important than full-bathrooms, they are weighted by $\frac{1}{2}$. |
-| `HouseAge` | Continuous | Age of the house in years (when sold). |
-| `YearsSinceRemod` | Continuous | Time passed since last renewal. |
-| `TotalSF` | Continuous | Surface over ground plus are of basement. |
-| `TotalPorchSF` | Continuous | Added surfaces of porches, terraces, etc. |
-| `Has2ndFloor` | Binary | If the house has a second floor or not. |
-| `IsRemodeled` | Binary | If the house has been remodeled or not. |
-
-Table with newly created vars and their description.
+Distribution analysis on the response variable. Original is left-skewed, whereas the log-transformed resembles a normal distribution.
 :::
 
-The main reason for creating these new variables is to reduce collinearity.
-We observed that some variables where tightly related and could be expressed as a single value.
-For example, observations with a big surface area above ground are likely to have a big surface area in their basement.
-Conversely, observations with low surface above ground are likely to have a smaller basement, as it is natural.
-For this reason, we combined both into a single variable, called `TotalSF`.
-Besides, it is likely that the "number shown in the advertise" is this very number, which highly impacts the decision.
+To address this non-normality and satisfy the assumptions of linear regression,
+we applied a logarithmic transformation (`log(SalePrice)`). This resulted in a
+distribution that much closely approximates a normal curve, as confirmed by the
+Q-Q plots generated during analysis (again, see @fig-sale-price).
 
-Similiar reasons follow for the rest of the created variables.
-To ensure that their creation is relevant for the model, we computed the correlation between them and the `SalePrice` variable. Output can be seen in @fig-correlation-newvars.
+### Correlation Analysis
 
-::: {#fig-correlation-newvars}
+We examined the correlation between numerical predictors and the sale price. The
+variables with the highest positive correlation were `TotalSF` (aggregation of the existing area-related variables), `TotalBath` (weighted-aggregation of the bathrooms and half bathrooms of the house), and `GarageCars` (size of the garage measured in cars). As an important mark, we used Spearman's rank correlation coefficient, since it is not affected by monotonic transformations such as the logarithm. See @fig-top-correlation for more details.
 
-```{r}
-plot(plot_correlation_newvars)
-```
+:::{#fig-top-correlation}
+![](images/top-correlation.svg)
 
-A correlation plot between the `SalePrice` variable and the newly created variables.
+The ten highest correlated variables with the `SalePrice` using Spearman's rank correlation coefficient.
 :::
 
-The coefficients are non-trivial, which means they can be used as predictors and they will have an impact.
-In consequence of the creation of these variables, others need to be modified.
+We also investigated categorical variables. Boxplots of `SalePrice` against
+`Neighborhood` showed significant variation in median prices, confirming that
+location is a critical determinant of value. Similarly, `OverallQual` showed a
+clear monotonic relationship with price. Interestingly, during our analysis, we also saw that `ExterQual` and `KitchenQual` are strongly related to an increment in price. See @fig-categorical for more details.
 
-Some variables can be safely removed now, as it is the case for every `Bath` variable, since the new `TotalBath` encapsulates the same information and keeping them would be redundant.
-In other cases, such as the  `YrSold`, we need to keep it, since `HouseAge` does not fully contain all the information (consider inflation, which affects prices in general, and which is not encapsulated int the `HouseAge` variable).
-Their correlation is acceptable too (see ***[PLACEHOLDER FOR REFERENCE TO GLOBAL CORRPLOT, DO NOT LEAVE AS IS]***), thus it is safe to keep them both.
-However, since
-$$
-\texttt{HouseAge} = \texttt{YrSold} + \texttt{YearBuilt},
-$$
-the variable `YearBuilt` needs to be removed, otherwise there would be redundant information affecting the models.
+::: {#fig-categorical}
+![](images/corr_cat.svg)
 
-Next, we removed variables with low variability.
-To do so we used `caret`'s `nearZeroVar` function, which considers any "ratio of the most common value to the second most common value" below $\frac{95}{5}$ to be of zero variance.
-@fig-lowvariance-vars shows the variables that didn't pass the filter.
-
-::: {#fig-lowvariance-vars}
-
-```{r}
-plot(graficos_variables_eliminar_sinvariabilidad)
-```
-
-Variables with low-variance, which tend to explain little of the data.
+Boxplots of several categorical variables against the sale price. Overall quality, neighborhood, exterior-material quality and kitchen quality are all related to an increase in price, each of them in different levels.
 :::
 
-Next, we focused our attention towards the response variable.
-As mentioned in @sec-objective-and-evaluation, the response variable needs to be log-transformed, since the distribution is right-skewed, 
-@fig-response-log shows the effect this transformation produces on it.
-The log-response behaves like a normal distribution, as the QQ-Plot demonstrates, which is ideal for our modelling purposes.
+### Missing Values Analysis
 
-:::{#fig-response-log}
+A detailed analysis of missing data revealed two distinct types of missingness:
 
-```{r}
-plot(grafico_exploratorio_respuesta)
-```
+1. **Structural Missingness:** Variables like `Alley`, `PoolQC`, and `Fence` had
+   high rates of missing values. However, the data dictionary implies that `NA`
+   here effectively means "Feature Not Present" (e.g., No Alley access) rather
+   than missing data. Therefore, these values were correctly imputed when reading the data.
+2. **Random Missingness:** Variables like `LotFrontage` showed missingness
+   patterns that required statistical imputation, since the median of the observations without value is higher than those with it (see @fig-missing-impact). The other variables with missing values were `Electrical`, `MasVnrArea` and `MasVnrType`. These last two were an interesting case, since both were missing (and present) at the same time in each row, suggesting both measurements can be taken (or not) at the same time.
 
-Comparison between the response variable as it it is against its log-scaled version.
+:::{#fig-missing-impact}
+![](images/missing_lotfrontage_impact.svg)
+
+Boxplot of the distribution of prices (in $log$ scale) grouped by the values of `LotFrontage` being missing or not.
+There is a non-trivial difference between both groups.
 :::
 
-Another possible transformation that we could have done, but chose not to, is to $\log$-transform the `TotalSF` variable.
-Like money, the absolute surface area available is less important when the value is high, but has a big impact when it is low.
-However, in our observations, the impact of this transformation was not significant.
-This lead us to keep it as it is, since it is easier to interpret without transformations.
+## Data Preprocessing & Feature Engineering
 
-This concludes the data exploration for numerical variables.
-As a final note on this part, we present @fig-highest-correlated-numerical, where the 10 highest correlated variables are presented.
-Note we chose to use [Spearman's rank correlation coefficient](https://en.wikipedia.org/wiki/Spearman%27s_rank_correlation_coefficient) instead of Pearson's.
-Motivation for this is...
-<!-- TODO: FINISH THE EXPLANATION FOR THE COEFFICIENT, ASK MARC WHY HE CHOSE IT -->
+### Imputation Strategy {#sec-imputation-strategy}
 
-::: {#fig-highest-correlated-numerical}
+Based on the EDA, we implemented a two-tiered imputation strategy:
 
-```{r}
-# plot(grafico_correlaciones_precio_predictores)
-```
+- **Categorical Encoding:** For variables like `PoolQC`, `GarageType`, and
+  `BsmtQual`, `NA` values were recoded to a explicit category (e.g., "No Pool",
+  "No Garage") to preserve the information that the feature is missing. This was instructed in the problem statement, so this step was performed at the beginning, when reading the data. Note as well that variables such as `OverallQual` were converted into categorical, but this was not entirely required since it could have been used as a numerical predictor as well.
+- **Statistical Imputation:** Remaining missing values in numerical columns were
+  handled using statistical methods to ensure the model could utilize all available records. Specifically, they were imputed using the MICE algorithm (Multivariate Imputation by Chained-Equations) with Random
+  Forest. To ensure robustness and prevent data leakage, the imputation
+  model was trained exclusively on the training data while applying the learned patterns to complete the test set.
 
-{{< placeholder 300 200 >}}
+### Feature Engineering {#sec-feature-engineer}
 
-Top 10 numerical variables with correlation.
-:::
+To improve model interpretability and performance, we created several composite
+variables:
 
-We shift our focus now to categorical variables.
-`OverallQual`, `Neighborhood`, `ExterQual`, `KitchenQual` seemed like good candidates for predictors, so we studied their correlations with the response variable.
+- **`TotalSF` (Total Square Footage):** We combined `TotalBsmtSF` and
+  `GrLivArea` to create a single metric for the size of the house. This variable
+  proved to have a higher correlation with price than its individual
+  components.
+- **`TotalBath`:** We aggregated full and half baths (both above ground and
+  basement) into a single count.
+- **`HouseAge` & `YearsSinceRemod`:** We converted `YearBuilt` and
+  `YearRemodAdd` into age variables relative to the year sold, which captures
+  depreciation more effectively than raw years.
+- **`TotalPorchSF`:** Summed the area of all decks and porches.
 
-::: {#fig-categorical-correlations}
+### Variable Selection
 
-```{r}
-# plot(grafico_correlaciones_categoricas)
-```
+To reduce noise and multicollinearity, we performed the following cleaning
+steps:
 
-{{< placeholder 300 200 >}}
+- **Near Zero Variance (NZV) Removal:** Variables with almost no variation
+  (e.g., `Utilities` where 99.9% were "AllPub", `Street`, and `PoolArea`) were
+  removed as they provide no predictive power.
+- **Redundancy Removal:** Highly correlated features were removed. For instance,
+  `GarageArea` was removed in favor of `GarageCars`, and `TotalBsmtSF` was
+  removed as it is now included in `TotalSF`. `FullBath` in favor of `TotalBath`, etc.
+  
+Note that for categorical variables a two-step feature selection was performed.
+First, we calculated a Cramer’s V matrix to detect multicollinearity. Second,
+we applied the Kruskal-Wallis test against \texttt{SalePrice}
+($\log$-transformed) to evaluate feature importance, identifying and flagging
+variables that showed no statistically significant relationship ($p > 0.05$)
+with the target.
 
-Correlation `SalePrice` and the categorical variables `OverallQual`, `Neighborhood`, `ExterQual` and `KitchenQual`.
-:::
+Following this approach we remained with 44 predictors, which is still quite a large number. Moreover, since categorical variables are turned into dummy variables when creating the model, this number could grow rapidly.
+For this reason, we used model selection techniques, as described in the following section.
 
-- The overall quality of the house shows a clear positive impact on the price. Naturally, a better house is more expensive.
-- The neighborhood does not produce any conclusive result.
-The _Meadow_ neighborhood seems to have consistent low values for prices, whereas in _North Ridge_ there is a lot of variablity reflected on the length of the boxplot. 
-- The quality of the exterior has a bigger impact on price than the quality of the kitchen, likely due to the fact that the interior can be renovated "easily", but the exterior requires more time and effort.
+## Methodology (Model Selection)
 
-An important question to answer is if the `OveraallQual`, the `KitechenQual`, and the rest of the "quality" variables are correlated among them.
-@fig-heatmap-categorical shows that, indeed, they are correlated with different magnitudes.
-The `SalePrice` variable has also been included in the plot.
+We tested several models and chose the best among them, some of them being **Regularized Linear Regression** models. Given the high dimensionality of the dataset (many categorical variables turned into dummy variables) and the presence of multicollinearity, ordinary least-squares regression is prone to overfitting. Regularization introduces a penalty term to shrink coefficients, improving generalization.
 
-:::{#fig-heatmap-categorical}
-```{r}
-# plot(graficos_heatmap_correlation)
-```
+The tested models were:
 
-{{< placeholder 300 200 >}}
+1. **Ridge Regression:** Penalizes the sum of squared coefficients. It shrinks coefficients but keeps all variables.
+1. **Lasso Regression:** Penalizes the sum of absolute values of coefficients. It can force coefficients to zero, effectively performing
+   feature selection.
+1. **ElasticNet:** A compromise between Ridge and Lasso.
+1. **Principal Component Regression:** Instead of regressing on the predictors directly, the principal components are used as regressors.
+1. **$k$-neighbors:**
+1. **GAM (splines):**
+1. **Linear with Forward Selection:**
+1. **Linear with Backwards Selection:**
 
-Correlation heatmap between the quality-related categorical variables.
-:::
+The spline approach was the most promising across the tested methods, producing the least RMSE (tested with cross-validation). PCR lost too much specific information in the components, and KNN struggled with the high dimensionality. None of the selection methods provided good metrics, so they were discarded.
 
-Interestingly, the condition of the exterior of the house does not seem to be correlated with the rest of them.
-In particular, is not correlated at all with the `SalePrice`.
-However, the exterior quality does seem to be correlated with the kitchen quality.
-The quality of the garage is also very correlated to its condition.
-Observing @fig-highly-correlated-pairs, there seems to be a tendency of categorizing the garage quality into the "Typical/Average" category (`r round(1291/(1460)*100)`% of them).
-Kitchen quality and exterior quality also tends to be categorized in "Typical/Average" or in "Good" at the same time.
+In the end however, we decided to go with a combination of Lasso, Ridge Regression and ElasticNet, weighting the output of each of them to produce the final one.
 
-@fig-highly-correlated-pairs also shows the distribution of the values agglomerated by exterior and kitchen quality.
+### The Ensemble Approach
 
-:::{#fig-highly-correlated-pairs}
-```{r}
-# plot(graficos_pares_altamente_correlacionados)
-```
+Rather than relying on a single model, we constructed an **Ensemble** by
+averaging the predictions of the Ridge, Lasso, and ElasticNet models.  Ensembling
+helps to cancel out the biases of individual models and typically yields a lower
+RMSE than any single model on its own.
 
-{{< placeholder 300 200 >}}
+### Interaction selection
 
-Pairs of highly correlated variables.
-:::
+The models we have been building so far were only using predictors with no interactions between them. However, after some evaluation, we decided to use Lasso to select the best interactions among the possible, finding an interesting discovery in the process: quantity needs to be measured by quality.
 
-There is a clear positive tendency in the price along with the quality of the exterior (in the lower levels the price is more concentrated, whereas in the upper ones it is more stretched).
-This shows that values are left-skewed.
+Every significant interaction follows this pattern. For example, the interaction between `TotalSF` and `OverallQual` was very significant, or the `OverallQual` and the `TotalBath`.
 
-On the other hand, the exterior condition seems to have a minor impact on sale prices, since many of the values seem to be agglomerated in the "Typical/Average" or the "Good" categories.
+## Results & Discussion
 
-This analysis can be extended to the rest of the categorical variables.
-@fig-median-price-by-level shows the relationship between prices and the category levels by the use of the median for each level (less affected by outliers).
+### Goodness of Fit
 
-:::{#fig-median-price-by-level}
-```{r}
-# plot(grafico_median_price_by_level)
-```
-
-{{< placeholder 300 200 >}}
-
-Median price by level for the 10 most correlated variables.
-:::
-
-Unsurprisingly, a better quality translates into a better saleprice.
-However, the differences vary from variable to variable.
-An excellent basement is far superior of an improvement over having a good one than having no basement to having a bad one, or even typical.
-The exterior quality shows a less exaggerated effect on the excellent level, but a more exaggerated one on the lowest-second to lowest difference.
-
-The neighbors are also decent predictors.
-However, as we already saw in @fig-categorical-correlations, the variance is high among some of them, so the predictive power of this variable may decrease in those neighbors with high variance.
-
-After this analysis, we decided to remove the `GarageCond`, `ExterCond` and `Exterior2nd` variables, since our analysis reports they are either unimportant or correlated to others.
-
-### Missing values
-
-We focus now on missing values on the remaining variables.
-@fig-missing-values shows those remaining with any of them.
-
-:::{#fig-missing-values}
-```{r}
-# plot(missing_values)
-```
-
-{{< placeholder 300 200 >}}
-
-Percentage of missing values across the remaining variables.
-:::
-
-`LotFrontage` is the variable with the highest number of missing values, likely due to the fact that measuring this value was not always possible.
-`Electrical`, `MasVnrArea` and `MasVnrType` show a small percentage of missing values.
-In particular `MasVnrArea` and `MasVnrType` have the exact same number of missing values, which raises the question: are they always misssing at the same time?
-
-::: {#fig-distribution-of-missing-values layout-ncol=2}
-```{r}
-# plot(graficos_vis_miss)
-```
-
-{{< placeholder 300 200 >}}
-
-```{r}
-# plot(graficos_missing_upset)
-```
-
-{{< placeholder 300 200 >}}
-
-Distribution of missing values.
-:::
-
-Indeed, @fig-distribution-of-missing-values shows that the two variables are missing for the same indices.
-In the case of `LotFrontage`, there might be a hidden pattern difficult to see at first, glance, thus @fig-missing-grouped.
-
-::: {#fig-missing-grouped layout-ncol=2}
-```{r}
-# plot(graficos_missing_neighborhood)
-```
-
-{{< placeholder 300 200 >}}
-
-```{r}
-# plot(graficos_missing_lotshape)
-```
-
-{{< placeholder 300 200 >}}
-
-Missing values grouped by neighborhood and by lot shape.
-No clear pattern can be established from them.
-:::
-
-Since there is still no apparent behavior, the final question before removing it is if it affects the price sales.
-First, @fig-lots-compared shows that the variable `LotArea` is not affected by the missing values in `LotFrontage`.
-
-::: {#fig-lots-compared}
-```{r}
-# plot(graficos_missing_lotfrontage)
-```
-
-{{< placeholder 300 200 >}}
-
-Distribution of the lot area grouped by the lot frontage availability.
-Distributions are similar, so there is no bias in missingness.
-:::
-
-What about prices?
-@fig-prices-by-missingness shows that there is a quantifyiable difference between the two groups, best represented by their means (`r round((172400/159500 - 1) * 100)`% higher in the case with missing values).
-
-::: {#fig-prices-by-missingness}
-```{r}
-# plot(graficos_missing_price)
-```
-
-{{< placeholder 300 200 >}}
-
-Distribution of prices grouped by values missing or not.
-Observations with missing values have a higher median, which cannot be ignored.
-:::
-
-Since the variable cannot be ignored (it has an effect on sale prices), imputation was required.
-
-## Data Preprocessing
+<!-- Aquí falta meter una buena discusión de los resultados, de las métricas que estamos usando y tal, de que suponemos que el error aumentará con el test porque siempre hay cierto overfitting, etc. -->
 
 
+### Specific Questions Assessment
 
-## Variable Selection {#sec-var-selection}
+<!-- Esto hay que reescribirlo para que se quede un poco mejor, el punto es que estaría bien responder a las preguntas que la profesora plantea en el enunciado. -->
 
-## Model Fitting and Validation
+**Q1: What is the variable that contributes the most to explain the variability
+in price?** Based on our correlation analysis and the magnitude of coefficients
+in the Lasso model, **`TotalSF` (Total Square Footage)** is the single most
+important predictor. It captures the size of the living area and basement, which
+is the primary driver of cost. **`OverallQual`** is the second most critical
+factor.
 
-## Results & Model Comparison
+**Q2: What are the characteristics of the cheapest/most expensive houses?**
 
-## Discussion: Drivers of Price
+- **Most Expensive:** Characterized by high `OverallQual` (9-10), large
+  `TotalSF` (>4000 sq ft), recent construction (`HouseAge` < 5 years), and
+  location in neighborhoods like _NridgHt_ or _StoneBr_. They almost always
+  possess a 3-car garage and high-quality basement finishes.
+- **Cheapest:** Characterized by low `OverallQual` (1-4), lack of a garage
+  (`GarageType` = "No Garage"), older age (`HouseAge` > 50 years) without
+  remodeling, and often possess the `Grav` (Gravel) alley access type or belong
+  to the _MeadowV_ neighborhood.
 
 ## Conclusion
+
+<!-- Conclusiones por mejorar -->
+
+By rigorously cleaning the data, engineering relevant features like `TotalSF`,
+and utilizing an ensemble of regularized regression models, we created a robust
+tool for predicting house prices. The model confirms that while size and quality
+are paramount, the specific combination of location and amenities refines the
+final valuation. Future work could explore tree-based models (like XGBoost) to
+capture non-linear relationships that linear models might miss.
