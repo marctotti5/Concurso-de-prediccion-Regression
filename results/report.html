@@ -2,7 +2,7 @@
 <html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
 
 <meta charset="utf-8">
-<meta name="generator" content="quarto-1.8.26">
+<meta name="generator" content="quarto-1.7.32">
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
@@ -27,15 +27,14 @@ ul.task-list li input[type="checkbox"] {
 <script src="report_files/libs/clipboard/clipboard.min.js"></script>
 <script src="report_files/libs/quarto-html/quarto.js" type="module"></script>
 <script src="report_files/libs/quarto-html/tabsets/tabsets.js" type="module"></script>
-<script src="report_files/libs/quarto-html/axe/axe-check.js" type="module"></script>
 <script src="report_files/libs/quarto-html/popper.min.js"></script>
 <script src="report_files/libs/quarto-html/tippy.umd.min.js"></script>
 <script src="report_files/libs/quarto-html/anchor.min.js"></script>
 <link href="report_files/libs/quarto-html/tippy.css" rel="stylesheet">
-<link href="report_files/libs/quarto-html/quarto-syntax-highlighting-587c61ba64f3a5504c4d52d930310e48.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<link href="report_files/libs/quarto-html/quarto-syntax-highlighting-37eea08aefeeee20ff55810ff984fec1.css" rel="stylesheet" id="quarto-text-highlighting-styles">
 <script src="report_files/libs/bootstrap/bootstrap.min.js"></script>
 <link href="report_files/libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
-<link href="report_files/libs/bootstrap/bootstrap-9e3ffae467580fdb927a41352e75a2e0.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<link href="report_files/libs/bootstrap/bootstrap-bb462d781dde1847d9e3ccf7736099dd.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
 
   <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
   <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js" type="text/javascript"></script>
@@ -51,7 +50,7 @@ const typesetMath = (el) => {
     var macros = [];
     for (var i = 0; i < mathElements.length; i++) {
       var texText = mathElements[i].firstChild;
-      if (mathElements[i].tagName == "SPAN" && texText && texText.data) {
+      if (mathElements[i].tagName == "SPAN") {
         window.katex.render(texText.data, mathElements[i], {
           displayMode: mathElements[i].classList.contains('display'),
           throwOnError: false,
@@ -121,8 +120,8 @@ window.Quarto = {
 <h2 data-number="3" class="anchored" data-anchor-id="exploratory-data-analysis-eda"><span class="header-section-number">3</span> Exploratory Data Analysis (EDA)</h2>
 <section id="preliminary-steps" class="level3" data-number="3.1">
 <h3 data-number="3.1" class="anchored" data-anchor-id="preliminary-steps"><span class="header-section-number">3.1</span> Preliminary steps</h3>
-<p>Right away from reading the data, we imputed the missing categories as the feature being missing. In <a href="#sec-imputation-strategy" class="quarto-xref">Section&nbsp;4.1</a> we deglose the process in more detail, but it was important to mention this beforehand.</p>
-<p>In the same spirit, since we were clear that many of the available variables were correlated and redundant, we created a handful of interest variables from the beginning to include them in the EDA (refer to <a href="#sec-feature-engineer" class="quarto-xref">Section&nbsp;4.2</a> for a detailed explanation them).</p>
+<p>Right away from reading the data, we imputed the missing categories as the feature being missing. In <a href="#sec-imputation-strategy" class="quarto-xref">Section&nbsp;4.2</a> we deglose the process in more detail, but it was important to mention this beforehand.</p>
+<p>In the same spirit, since we were clear that many of the available variables were correlated and redundant, we created a handful of interest variables from the beginning to include them in the EDA (refer to <a href="#sec-feature-engineer" class="quarto-xref">Section&nbsp;4.3</a> for a detailed explanation them).</p>
 </section>
 <section id="analysis-of-the-target-variable-saleprice" class="level3" data-number="3.2">
 <h3 data-number="3.2" class="anchored" data-anchor-id="analysis-of-the-target-variable-saleprice"><span class="header-section-number">3.2</span> Analysis of the Target Variable (<code>SalePrice</code>)</h3>
@@ -220,16 +219,32 @@ Figure&nbsp;4: Boxplot of the distribution of prices (in <span class="math inlin
 </section>
 <section id="data-preprocessing-feature-engineering" class="level2" data-number="4">
 <h2 data-number="4" class="anchored" data-anchor-id="data-preprocessing-feature-engineering"><span class="header-section-number">4</span> Data Preprocessing &amp; Feature Engineering</h2>
-<section id="sec-imputation-strategy" class="level3" data-number="4.1">
-<h3 data-number="4.1" class="anchored" data-anchor-id="sec-imputation-strategy"><span class="header-section-number">4.1</span> Imputation Strategy</h3>
+<section id="sec-outliers" class="level3" data-number="4.1">
+<h3 data-number="4.1" class="anchored" data-anchor-id="sec-outliers"><span class="header-section-number">4.1</span> Outlier Detection and Influence Analysis</h3>
+<p>Before proceeding with imputation, we performed a diagnostic check to identify observations that could disproportionately bias our model’s parameters. We focused on influential points, which are observations that possess both high leverage and high residuals.</p>
+<p>Using a preliminary linear model, we calculated Cook’s Distance for every observation in the training set. We applied the standard threshold of <span class="math inline">\(D_i &gt; 4/(n - k - 1)\)</span> to flag potential problems.</p>
+<div id="fig-influence-diag" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-influence-diag-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="images/influential.svg" class="img-fluid figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-influence-diag-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;5: Diagnostic plots for identifying influential points. The left panel shows Standardized Residuals vs.&nbsp;Leverage with a Cook’s Distance threshold of <span class="math inline">\(D_i &gt; 4/(n-k-1)\)</span>. The right panel demonstrates how removing IDs 1299 and 524 (dashed green line) improves the regression trend for the rest of the market.
+</figcaption>
+</figure>
+</div>
+<p>As shown in <a href="#fig-influence-diag" class="quarto-xref">Figure&nbsp;5</a>, two specific observations (IDs 1299 and 524) were identified as extreme outliers. These properties feature total square footage exceeding 4,000 sq ft but sold for prices significantly below the expected trend for their size. Including these points would “pull” the regression line downward, leading to an underestimation of value for other large properties. Consequently, these two observations were removed to ensure model robustness.</p>
+</section>
+<section id="sec-imputation-strategy" class="level3" data-number="4.2">
+<h3 data-number="4.2" class="anchored" data-anchor-id="sec-imputation-strategy"><span class="header-section-number">4.2</span> Imputation Strategy</h3>
 <p>Based on the EDA, we implemented a two-tiered imputation strategy:</p>
 <ul>
 <li><strong>Categorical Encoding:</strong> For variables like <code>PoolQC</code>, <code>GarageType</code>, and <code>BsmtQual</code>, <code>NA</code> values were recoded to a explicit category (e.g., “No Pool”, “No Garage”) to preserve the information that the feature is missing. This was instructed in the problem statement, so this step was performed at the beginning, when reading the data. Note as well that variables such as <code>OverallQual</code> were converted into categorical, but this was not entirely required since it could have been used as a numerical predictor as well.</li>
 <li><strong>Statistical Imputation:</strong> Remaining missing values in numerical columns were handled using statistical methods to ensure the model could utilize all available records. Specifically, they were imputed using the MICE algorithm (Multivariate Imputation by Chained-Equations) with Random Forest. To ensure robustness and prevent data leakage, the imputation model was trained exclusively on the training data while applying the learned patterns to complete the test set.</li>
 </ul>
 </section>
-<section id="sec-feature-engineer" class="level3" data-number="4.2">
-<h3 data-number="4.2" class="anchored" data-anchor-id="sec-feature-engineer"><span class="header-section-number">4.2</span> Feature Engineering</h3>
+<section id="sec-feature-engineer" class="level3" data-number="4.3">
+<h3 data-number="4.3" class="anchored" data-anchor-id="sec-feature-engineer"><span class="header-section-number">4.3</span> Feature Engineering</h3>
 <p>To improve model interpretability and performance, we created several composite variables:</p>
 <ul>
 <li><strong><code>TotalSF</code> (Total Square Footage):</strong> We combined <code>TotalBsmtSF</code> and <code>GrLivArea</code> to create a single metric for the size of the house. This variable proved to have a higher correlation with price than its individual components.</li>
@@ -238,8 +253,8 @@ Figure&nbsp;4: Boxplot of the distribution of prices (in <span class="math inlin
 <li><strong><code>TotalPorchSF</code>:</strong> Summed the area of all decks and porches.</li>
 </ul>
 </section>
-<section id="variable-selection" class="level3" data-number="4.3">
-<h3 data-number="4.3" class="anchored" data-anchor-id="variable-selection"><span class="header-section-number">4.3</span> Variable Selection</h3>
+<section id="variable-selection" class="level3" data-number="4.4">
+<h3 data-number="4.4" class="anchored" data-anchor-id="variable-selection"><span class="header-section-number">4.4</span> Variable Selection</h3>
 <p>To reduce noise and multicollinearity, we performed the following cleaning steps:</p>
 <ul>
 <li><strong>Near Zero Variance (NZV) Removal:</strong> Variables with almost no variation (e.g., <code>Utilities</code> where 99.9% were “AllPub”, <code>Street</code>, and <code>PoolArea</code>) were removed as they provide no predictive power.</li>
@@ -351,14 +366,13 @@ Figure&nbsp;4: Boxplot of the distribution of prices (in <span class="math inlin
       e.clearSelection();
     }
     const getTextToCopy = function(trigger) {
-      const outerScaffold = trigger.parentElement.cloneNode(true);
-      const codeEl = outerScaffold.querySelector('code');
-      for (const childEl of codeEl.children) {
-        if (isCodeAnnotation(childEl)) {
-          childEl.remove();
+        const codeEl = trigger.previousElementSibling.cloneNode(true);
+        for (const childEl of codeEl.children) {
+          if (isCodeAnnotation(childEl)) {
+            childEl.remove();
+          }
         }
-      }
-      return codeEl.innerText;
+        return codeEl.innerText;
     }
     const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
       text: getTextToCopy

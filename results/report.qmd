@@ -111,6 +111,21 @@ There is a non-trivial difference between both groups.
 
 ## Data Preprocessing & Feature Engineering
 
+### Outlier Detection and Influence Analysis {#sec-outliers}
+
+Before proceeding with imputation, we performed a diagnostic check to identify observations that could disproportionately bias our model's parameters. We focused on influential points, which are observations that possess both high leverage and high residuals.
+
+Using a preliminary linear model, we calculated Cook's Distance for every observation in the training set. We applied the standard threshold of $D_i > 4/(n - k - 1)$ to flag potential problems. 
+
+:::{#fig-influence-diag}
+![](images/influential.svg)
+
+Diagnostic plots for identifying influential points. The left panel shows Standardized Residuals vs. Leverage with a Cook's Distance threshold of $D_i > 4/(n-k-1)$. The right panel demonstrates how removing IDs 1299 and 524 (dashed green line) improves the regression trend for the rest of the market.
+:::
+
+As shown in @fig-influence-diag, two specific observations (IDs 1299 and 524) were identified as extreme outliers. These properties feature total square footage exceeding 4,000 sq ft but sold for prices significantly below the expected trend for their size. Including these points would "pull" the regression line downward, leading to an underestimation of value for other large properties. Consequently, these two observations were removed to ensure model robustness.
+
+
 ### Imputation Strategy {#sec-imputation-strategy}
 
 Based on the EDA, we implemented a two-tiered imputation strategy:
