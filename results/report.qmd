@@ -161,38 +161,47 @@ with the target.
 Following this approach we remained with 44 predictors, which is still quite a large number. Moreover, since categorical variables are turned into dummy variables when creating the model, this number could grow rapidly.
 For this reason, we used model selection techniques, as described in the following section.
 
-## Methodology (Model Selection)
+## Methodology and Model Selection
 
-We tested several models and chose the best among them, some of them being **Regularized Linear Regression** models. Given the high dimensionality of the dataset (many categorical variables turned into dummy variables) and the presence of multicollinearity, ordinary least-squares regression is prone to overfitting. Regularization introduces a penalty term to shrink coefficients, improving generalization.
+The model selection process evolved from simple linear regression toward advanced regularization and nonlinear modeling techniques. Our objective was not only to minimize error, but to capture the intrinsic complexity of the Ames housing market. We evaluated a full spectrum of algorithms, maintaining a rigorous comparison among them:
 
-The tested models were:
+1. **Regularized Linear Models Ridge Lasso and Elastic Net:** Implemented to manage high dimensionality and multicollinearity by penalizing coefficients in order to improve generalization.
+2. **Principal Components Regression PCR:** Used to reduce the dimensionality of the predictor space, at the cost of potential loss of interpretability.
+3. **K Nearest Neighbors KNN:** A nonparametric approach based on local similarity between properties.
+4. **Stepwise Variable Selection Forward and Backward:** Iterative methods based on information criteria AIC to identify the optimal subset of predictors.
+5. **Generalized Additive Models GAM:** Our final proposal, based on the use of smoothing splines to model nonlinear relationships.
 
-1. **Ridge Regression:** Penalizes the sum of squared coefficients. It shrinks coefficients but keeps all variables.
-1. **Lasso Regression:** Penalizes the sum of absolute values of coefficients. It can force coefficients to zero, effectively performing
-   feature selection.
-1. **ElasticNet:** A compromise between Ridge and Lasso.
-1. **Principal Component Regression:** Instead of regressing on the predictors directly, the principal components are used as regressors.
-1. **$k$-neighbors:**
-1. **GAM (splines):**
-1. **Linear with Forward Selection:**
-1. **Linear with Backwards Selection:**
+### Evaluation of Initial Candidates
 
-The spline approach was the most promising across the tested methods, producing the least RMSE (tested with cross-validation). PCR lost too much specific information in the components, and KNN struggled with the high dimensionality. None of the selection methods provided good metrics, so they were discarded.
+After extensive cross validation, a clear performance hierarchy emerged. **Regularization models Lasso and Elastic Net** established a very solid benchmark, outperforming **stepwise selection methods**, which tended toward mild overfitting due to greedy decisions on individual variables.
 
-In the end however, we decided to go with a combination of Lasso, Ridge Regression and ElasticNet, weighting the output of each of them to produce the final one.
+By contrast, **PCR and KNN** showed the weakest performance. PCR, by constructing components without considering the response variable, diluted critical nuances for appraisal, while KNN suffered from the curse of dimensionality, where distance in a space with more than 80 variables loses predictive meaning.
 
-### The Ensemble Approach
+### The Winning Model
 
-Rather than relying on a single model, we constructed an **Ensemble** by
-averaging the predictions of the Ridge, Lasso, and ElasticNet models.  Ensembling
-helps to cancel out the biases of individual models and typically yields a lower
-RMSE than any single model on its own.
+Despite the robustness of linear models, we identified that the market does not behave in a purely additive and linear way. For this reason, we selected a **Generalized Additive Model GAM**, which was optimized through a process of statistical craftsmanship in three phases:
 
-### Interaction selection
+#### Nonlinearity Diagnosis and Splines
 
-The models we have been building so far were only using predictors with no interactions between them. However, after some evaluation, we decided to use Lasso to select the best interactions among the possible, finding an interesting discovery in the process: quantity needs to be measured by quality.
+We conducted a linearity check by comparing linear fits against local smoothers LOESS. We confirmed that variables such as `TotalSF` and `HouseAge` exhibited curvature that a straight line could not capture.  
+To optimize this, we implemented **cubic regression splines `bs='cr'`**, manually tuning the basis dimension **k** up to `k=40`. This increase in flexibility allowed the model to learn complex patterns, such as diminishing returns to built area, without fitting noise.
 
-Every significant interaction follows this pattern. For example, the interaction between `TotalSF` and `OverallQual` was very significant, or the `OverallQual` and the `TotalBath`.
+#### Interactions
+
+One of the most powerful findings in our optimization phase was that the effect of quantity square meters or bathrooms is modulated by quality. We did not include interactions at random. Instead, we used **two way ANOVA** to identify the most significant pairs:
+
+- **Size Quality Interaction:** We implemented a cross between `TotalSF` and `OverallQual`, capturing that an additional square meter in a luxury home is worth exponentially more than in a low quality home.
+- **Condition Dependent Depreciation:** We introduced the term `s(HouseAge, by = OverallCond)`, allowing the aging curve of the property to differ according to its state of maintenance.
+
+#### Robustness Through Random Effects and REML
+
+To avoid overfitting in variables with many categories, such as `Neighborhood`, we treated neighborhood as a **random effect `bs='re'`**. This applies shrinkage that stabilizes predictions in areas with few observations.  
+Finally, the model was fitted using **Restricted Maximum Likelihood REML**. Unlike other selection methods, REML provides a much more robust complexity penalty, ensuring that the model captures the true data structure rather than noise from the training set.
+
+### Benchmarking Conclusion
+
+The final results table confirms our hypothesis. The **GAM** outperforms linear regularization models by being able to bend where market reality demands it. While Elastic Net and Lasso provide an excellent linear approximation, the optimized GAM with quality driven interactions and neighborhood random effects stands out as the most accurate and balanced predictive tool for this competition.
+
 
 ## Results & Discussion
 
