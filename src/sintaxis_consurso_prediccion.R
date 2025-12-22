@@ -528,10 +528,10 @@ p4 <- data_pisos_train |>
 
 grafico_exploratorio_respuesta <- grid.arrange(p1, p2, p3, p4, ncol = 2)
 
-save_square(p1, "LogSalePrice-p1.svg")
-save_square(p2, "LogSalePrice-p2.svg")
-save_square(p3, "LogSalePrice-p3.svg")
-save_square(p4, "LogSalePrice-p4.svg")
+# save_square(p1, "LogSalePrice-p1.svg")
+# save_square(p2, "LogSalePrice-p2.svg")
+# save_square(p3, "LogSalePrice-p3.svg")
+# save_square(p4, "LogSalePrice-p4.svg")
 
 
 ## 8.2. Correlaciones: variables numéricas con SalePrice
@@ -569,7 +569,7 @@ grafico_correlaciones_precio_predictores <- ggplot(
   theme_minimal() +
   theme(panel.grid.major.y = element_blank())
 
-save_small(grafico_correlaciones_precio_predictores, "top-correlation.svg")
+# save_small(grafico_correlaciones_precio_predictores, "top-correlation.svg")
 
 
 # -----------------------------------------------------------------
@@ -643,7 +643,7 @@ p4 <- data_pisos_train |>
   theme_minimal()
 
 grafico_correlaciones_categoricas = grid.arrange(p1, p2, p3, p4, ncol = 2)
-save_big(grafico_correlaciones_categoricas, "corr_cat.svg")
+# save_big(grafico_correlaciones_categoricas, "corr_cat.svg")
 
 ## 9.2. Identificar variables categóricas redundantes mediante correlación
 
@@ -696,7 +696,7 @@ graficos_heatmap_correlation = pheatmap(
   legend_breaks = c(-1, -0.5, 0, 0.5, 1)
 )
 
-save_big(graficos_heatmap_correlation, "correlation-heatmap.pdf")
+# save_big(graficos_heatmap_correlation, "correlation-heatmap.pdf")
 
 ## 9.3. Visualizar pares altamente correlacionados
 
@@ -986,7 +986,7 @@ graficos_missing_price = data_pisos_train |>
   theme_minimal() +
   theme(legend.position = "none")
 
-save_small(graficos_missing_price, "missing_lotfrontage_impact.svg")
+# save_small(graficos_missing_price, "missing_lotfrontage_impact.svg")
 
 # -----------------------------------------------------------------------------
 # SECCIÓN 12: IMPUTACIÓN ROBUSTA ------
@@ -1026,6 +1026,7 @@ impute_unified <- mice(
   data_full_imputation %>% dplyr::select(-is_test, -Id),
   m = 1,
   method = "rf", # Random Forest es robusto para esto
+)
 ## ----------------------------------------------------------------------------------------------------------
 # SECCIÓN 13: DIAGNÓSTICO DE INFLUENTIAL POINTS ------
 ## ----------------------------------------------------------------------------------------------------------
@@ -1044,7 +1045,6 @@ diagnostics <- data_pisos_train_imputed %>%
     # Distancia de Cook: Detecta observaciones influyentes (combinación de outlier + leverage).
     # Mide cuánto cambiaría el modelo si se elimina la observación.
     cooks_d = cooks.distance(model_diag),
-  ignore = ignore_vec,
   maxit = 5,
   seed = 123,
   printFlag = TRUE
@@ -1075,7 +1075,6 @@ print(paste("NAs en Test:", sum(is.na(data_pisos_test_imputed))))
 
     # Leverage (Hat values): Detecta valores inusuales en los predictores (X).
     hat_val = hatvalues(model_diag)
-  )
 
 # Rules of Thumb
 n <- nrow(numeric_data_diag)
@@ -1168,7 +1167,7 @@ p_val <- ggplot(diagnostics, aes(x = TotalSF, y = SalePrice)) +
 
 
 influential_points = grid.arrange(p_diag, p_val, ncol = 2)
-save_big(influential_points, "influential.pdf")
+# save_big(influential_points, "influential.pdf")
 
 # Identificar candidatos a eliminar
 # Nos centramos en los que son Influyentes (Cook alto) Y además tienen residuo alto.
@@ -1187,7 +1186,6 @@ print(outliers_to_remove)
 # our previous filtering makes sense.
 
 # 1. Standard Diagnostic Plot
-pdf(file = "/home/edugambin/Documents/reg/Concurso-de-prediccion-Regression/results/images/diagnostics.pdf", width = 8, height = 6)
 par(mfrow = c(2, 2))
 plot(model_diag)
 dev.off()
@@ -2926,6 +2924,10 @@ results_complete <- data.frame(
 
 print("--- CLASIFICACIÓN FINAL DEL CONCURSO ---")
 print(results_complete)
+kable(
+  results_complete,
+  format = "markdown"
+)
 
 # Identificamos el ganador para automatizar la decisión
 ganador <- results_complete$Modelo[1]

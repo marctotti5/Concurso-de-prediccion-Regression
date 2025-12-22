@@ -217,43 +217,46 @@ Finally, the model was fitted using **Restricted Maximum Likelihood REML**. Unli
 
 The final results table confirms our hypothesis. The **GAM** outperforms linear regularization models by being able to bend where market reality demands it. While Elastic Net and Lasso provide an excellent linear approximation, the optimized GAM with quality driven interactions and neighborhood random effects stands out as the most accurate and balanced predictive tool for this competition.
 
+| Rank | Model           | RMSE  |
+|------|-----------------|-------|
+| 1    | GAM (Splines)   | 0.1025|
+| 2    | ElasticNet      | 0.1089|
+| 3    | Lasso           | 0.1094|
+| 4    | Ridge           | 0.1120|
+| 5    | LM Forward      | 0.1138|
+| 6    | LM Backward     | 0.1138|
+| 7    | PCR             | 0.1247|
+| 8    | KNN             | 0.1738|
 
 ## Results & Discussion
 
 ### Goodness of Fit
 
-<!-- Aquí falta meter una buena discusión de los resultados, de las métricas que estamos usando y tal, de que suponemos que el error aumentará con el test porque siempre hay cierto overfitting, etc. -->
+The **Generalized Additive Model (GAM)** with cubic splines proved to be a highly effective predictive tool, achieving a validation **RMSE of 0.1025**. Because the target variable is log-transformed, this value indicates that our model has an average prediction error of approximately **10.25%** in the original dollar price of the homes. 
+
+
+
+The model demonstrates an exceptional fit, explaining **92% of the total deviance** with an **Adjusted R-squared of 0.914**. To ensure the robustness of these results and guard against overfitting, we analyzed the following diagnostics from the model output:
+
+* **Effective Degrees of Freedom (EDF):** The smooth term for **TotalSF** has an EDF of **4.22**, and **LotArea** has an EDF of **4.06**, statistically confirming significant non-linear relationships that a standard linear model would fail to capture.
+* **Significance of Smooth Terms:** Both **TotalSF** and **LotArea** are highly significant ($p < 2e-16$), justifying their inclusion as curved predictors rather than simple linear terms.
+* **Interaction Effects:** The model successfully captured condition-dependent depreciation through the `s(HouseAge):OverallCond` interaction, which is highly significant for homes in average or good condition, specifically levels 5, 6, and 7 ($p < 2e-16$).
+
 
 
 ### Specific Questions Assessment
 
-<!-- Esto hay que reescribirlo para que se quede un poco mejor, el punto es que estaría bien responder a las preguntas que la profesora plantea en el enunciado. -->
+**Q1: What is the variable that contributes the most to explain the variability in price?**
 
-**Q1: What is the variable that contributes the most to explain the variability
-in price?** Based on our correlation analysis and the magnitude of coefficients
-in the Lasso model, **`TotalSF` (Total Square Footage)** is the single most
-important predictor. It captures the size of the living area and basement, which
-is the primary driver of cost. **`OverallQual`** is the second most critical
-factor.
+Based on the GAM results, **TotalSF (Total Square Footage)** is the most critical predictor. It exhibits the highest F-statistic (**74.88**) among the smooth terms, indicating it has the strongest non-linear influence on the house price. This is followed closely by **OverallQual**, where moving from a quality level of 3 to 10 increases the log-price coefficient from **0.29 to 0.71**, representing a massive premium for high-end construction.
 
-**Q2: What are the characteristics of the cheapest/most expensive houses?**
+**Q2: What are the characteristics of the cheapest and most expensive houses?**
 
-- **Most Expensive:** Characterized by high `OverallQual` (9-10), large
-  `TotalSF` (>4000 sq ft), recent construction (`HouseAge` < 5 years), and
-  location in neighborhoods like _NridgHt_ or _StoneBr_. They almost always
-  possess a 3-car garage and high-quality basement finishes.
-- **Cheapest:** Characterized by low `OverallQual` (1-4), lack of a garage
-  (`GarageType` = "No Garage"), older age (`HouseAge` > 50 years) without
-  remodeling, and often possess the `Grav` (Gravel) alley access type or belong
-  to the _MeadowV_ neighborhood.
+* **Most Expensive:** These homes are primarily defined by an **OverallQual of 9 or 10**. They typically feature a large **TotalSF**, have at least **3-car garages** (Estimate: 0.037, $p < 6.41e-06$), and are located in premium neighborhoods like **NridgHt** or **StoneBr**. The model also shows they often have **Excellent Kitchen Quality** (Estimate: 0.095) and **Finished Garages** (Estimate: 0.102), both of which carry significant positive coefficients.
+* **Cheapest:** Characterized by low **OverallQual (1-4)** and poor maintenance levels. These properties often have **Fair or Typical basement quality**, which carries a negative coefficient (e.g., BsmtQualFa: -0.113) relative to the baseline. They are frequently located in neighborhoods like **IDOTRR** or **OldTown**, where the renovation impact (`YearsSinceRemod`) is significantly lower or where specific local conditions depress the valuation.
 
 ## Conclusion
 
-<!-- Conclusiones por mejorar -->
+By implementing a **Generalized Additive Model (GAM)**, we successfully captured the intrinsic non-linearities of the Ames housing market, such as the diminishing marginal returns of square footage and the complex interaction between a house's age and its maintenance condition.
 
-By rigorously cleaning the data, engineering relevant features like `TotalSF`,
-and utilizing an ensemble of regularized regression models, we created a robust
-tool for predicting house prices. The model confirms that while size and quality
-are paramount, the specific combination of location and amenities refines the
-final valuation. Future work could explore tree-based models (like XGBoost) to
-capture non-linear relationships that linear models might miss.
+The model's ability to explain **92% of price deviance** proves that while basic size metrics are the foundation of value, the "fine-tuning" provided by splines and random effects for neighborhoods is what drives high-precision forecasting. This approach allowed us to identify specific market drivers—like the significant impact of **Fireplaces** ($p < 9.84e-11$) and **Garage Finishing** ($p < 1.63e-05$)—that simpler linear models might overlook. Future iterations could explore tree-based models, such as **XGBoost**, to potentially capture higher-order interactions that linear or additive frameworks might still miss.

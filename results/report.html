@@ -264,53 +264,126 @@ Figure&nbsp;5: Diagnostic plots for identifying influential points. The left pan
 <p>Following this approach we remained with 44 predictors, which is still quite a large number. Moreover, since categorical variables are turned into dummy variables when creating the model, this number could grow rapidly. For this reason, we used model selection techniques, as described in the following section.</p>
 </section>
 </section>
-<section id="methodology-model-selection" class="level2" data-number="5">
-<h2 data-number="5" class="anchored" data-anchor-id="methodology-model-selection"><span class="header-section-number">5</span> Methodology (Model Selection)</h2>
-<p>We tested several models and chose the best among them, some of them being <strong>Regularized Linear Regression</strong> models. Given the high dimensionality of the dataset (many categorical variables turned into dummy variables) and the presence of multicollinearity, ordinary least-squares regression is prone to overfitting. Regularization introduces a penalty term to shrink coefficients, improving generalization.</p>
-<p>The tested models were:</p>
+<section id="methodology-and-model-selection" class="level2" data-number="5">
+<h2 data-number="5" class="anchored" data-anchor-id="methodology-and-model-selection"><span class="header-section-number">5</span> Methodology and Model Selection</h2>
+<p>The model selection process evolved from simple linear regression toward advanced regularization and nonlinear modeling techniques. Our objective was not only to minimize error, but to capture the intrinsic complexity of the Ames housing market. We evaluated a full spectrum of algorithms, maintaining a rigorous comparison among them:</p>
 <ol type="1">
-<li><strong>Ridge Regression:</strong> Penalizes the sum of squared coefficients. It shrinks coefficients but keeps all variables.</li>
-<li><strong>Lasso Regression:</strong> Penalizes the sum of absolute values of coefficients. It can force coefficients to zero, effectively performing feature selection.</li>
-<li><strong>ElasticNet:</strong> A compromise between Ridge and Lasso.</li>
-<li><strong>Principal Component Regression:</strong> Instead of regressing on the predictors directly, the principal components are used as regressors.</li>
-<li><strong><span class="math inline">\(k\)</span>-neighbors:</strong></li>
-<li><strong>GAM (splines):</strong></li>
-<li><strong>Linear with Forward Selection:</strong></li>
-<li><strong>Linear with Backwards Selection:</strong></li>
+<li><strong>Regularized Linear Models Ridge Lasso and Elastic Net:</strong> Implemented to manage high dimensionality and multicollinearity by penalizing coefficients in order to improve generalization.</li>
+<li><strong>Principal Components Regression PCR:</strong> Used to reduce the dimensionality of the predictor space, at the cost of potential loss of interpretability.</li>
+<li><strong>K Nearest Neighbors KNN:</strong> A nonparametric approach based on local similarity between properties.</li>
+<li><strong>Stepwise Variable Selection Forward and Backward:</strong> Iterative methods based on information criteria AIC to identify the optimal subset of predictors.</li>
+<li><strong>Generalized Additive Models GAM:</strong> Our final proposal, based on the use of smoothing splines to model nonlinear relationships.</li>
 </ol>
-<p>The spline approach was the most promising across the tested methods, producing the least RMSE (tested with cross-validation). PCR lost too much specific information in the components, and KNN struggled with the high dimensionality. None of the selection methods provided good metrics, so they were discarded.</p>
-<p>In the end however, we decided to go with a combination of Lasso, Ridge Regression and ElasticNet, weighting the output of each of them to produce the final one.</p>
-<section id="the-ensemble-approach" class="level3" data-number="5.1">
-<h3 data-number="5.1" class="anchored" data-anchor-id="the-ensemble-approach"><span class="header-section-number">5.1</span> The Ensemble Approach</h3>
-<p>Rather than relying on a single model, we constructed an <strong>Ensemble</strong> by averaging the predictions of the Ridge, Lasso, and ElasticNet models. Ensembling helps to cancel out the biases of individual models and typically yields a lower RMSE than any single model on its own.</p>
+<section id="evaluation-of-initial-candidates" class="level3" data-number="5.1">
+<h3 data-number="5.1" class="anchored" data-anchor-id="evaluation-of-initial-candidates"><span class="header-section-number">5.1</span> Evaluation of Initial Candidates</h3>
+<p>After extensive cross validation, a clear performance hierarchy emerged. <strong>Regularization models Lasso and Elastic Net</strong> established a very solid benchmark, outperforming <strong>stepwise selection methods</strong>, which tended toward mild overfitting due to greedy decisions on individual variables.</p>
+<p>By contrast, <strong>PCR and KNN</strong> showed the weakest performance. PCR, by constructing components without considering the response variable, diluted critical nuances for appraisal, while KNN suffered from the curse of dimensionality, where distance in a space with more than 80 variables loses predictive meaning.</p>
 </section>
-<section id="interaction-selection" class="level3" data-number="5.2">
-<h3 data-number="5.2" class="anchored" data-anchor-id="interaction-selection"><span class="header-section-number">5.2</span> Interaction selection</h3>
-<p>The models we have been building so far were only using predictors with no interactions between them. However, after some evaluation, we decided to use Lasso to select the best interactions among the possible, finding an interesting discovery in the process: quantity needs to be measured by quality.</p>
-<p>Every significant interaction follows this pattern. For example, the interaction between <code>TotalSF</code> and <code>OverallQual</code> was very significant, or the <code>OverallQual</code> and the <code>TotalBath</code>.</p>
+<section id="the-winning-model" class="level3" data-number="5.2">
+<h3 data-number="5.2" class="anchored" data-anchor-id="the-winning-model"><span class="header-section-number">5.2</span> The Winning Model</h3>
+<p>Despite the robustness of linear models, we identified that the market does not behave in a purely additive and linear way. For this reason, we selected a <strong>Generalized Additive Model GAM</strong>, which was optimized through a process of statistical craftsmanship in three phases:</p>
+<section id="nonlinearity-diagnosis-and-splines" class="level4" data-number="5.2.1">
+<h4 data-number="5.2.1" class="anchored" data-anchor-id="nonlinearity-diagnosis-and-splines"><span class="header-section-number">5.2.1</span> Nonlinearity Diagnosis and Splines</h4>
+<p>We conducted a linearity check by comparing linear fits against local smoothers LOESS. We confirmed that variables such as <code>TotalSF</code> and <code>HouseAge</code> exhibited curvature that a straight line could not capture.<br>
+To optimize this, we implemented <strong>cubic regression splines <code>bs='cr'</code></strong>, manually tuning the basis dimension <strong>k</strong> up to <code>k=40</code>. This increase in flexibility allowed the model to learn complex patterns, such as diminishing returns to built area, without fitting noise.</p>
+</section>
+<section id="interactions" class="level4" data-number="5.2.2">
+<h4 data-number="5.2.2" class="anchored" data-anchor-id="interactions"><span class="header-section-number">5.2.2</span> Interactions</h4>
+<p>One of the most powerful findings in our optimization phase was that the effect of quantity square meters or bathrooms is modulated by quality. We did not include interactions at random. Instead, we used <strong>two way ANOVA</strong> to identify the most significant pairs:</p>
+<ul>
+<li><strong>Size Quality Interaction:</strong> We implemented a cross between <code>TotalSF</code> and <code>OverallQual</code>, capturing that an additional square meter in a luxury home is worth exponentially more than in a low quality home.</li>
+<li><strong>Condition Dependent Depreciation:</strong> We introduced the term <code>s(HouseAge, by = OverallCond)</code>, allowing the aging curve of the property to differ according to its state of maintenance.</li>
+</ul>
+</section>
+<section id="robustness-through-random-effects-and-reml" class="level4" data-number="5.2.3">
+<h4 data-number="5.2.3" class="anchored" data-anchor-id="robustness-through-random-effects-and-reml"><span class="header-section-number">5.2.3</span> Robustness Through Random Effects and REML</h4>
+<p>To avoid overfitting in variables with many categories, such as <code>Neighborhood</code>, we treated neighborhood as a <strong>random effect <code>bs='re'</code></strong>. This applies shrinkage that stabilizes predictions in areas with few observations.<br>
+Finally, the model was fitted using <strong>Restricted Maximum Likelihood REML</strong>. Unlike other selection methods, REML provides a much more robust complexity penalty, ensuring that the model captures the true data structure rather than noise from the training set.</p>
+</section>
+</section>
+<section id="benchmarking-conclusion" class="level3" data-number="5.3">
+<h3 data-number="5.3" class="anchored" data-anchor-id="benchmarking-conclusion"><span class="header-section-number">5.3</span> Benchmarking Conclusion</h3>
+<p>The final results table confirms our hypothesis. The <strong>GAM</strong> outperforms linear regularization models by being able to bend where market reality demands it. While Elastic Net and Lasso provide an excellent linear approximation, the optimized GAM with quality driven interactions and neighborhood random effects stands out as the most accurate and balanced predictive tool for this competition.</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Rank</th>
+<th>Model</th>
+<th>RMSE</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>1</td>
+<td>GAM (Splines)</td>
+<td>0.1025</td>
+</tr>
+<tr class="even">
+<td>2</td>
+<td>ElasticNet</td>
+<td>0.1089</td>
+</tr>
+<tr class="odd">
+<td>3</td>
+<td>Lasso</td>
+<td>0.1094</td>
+</tr>
+<tr class="even">
+<td>4</td>
+<td>Ridge</td>
+<td>0.1120</td>
+</tr>
+<tr class="odd">
+<td>5</td>
+<td>LM Forward</td>
+<td>0.1138</td>
+</tr>
+<tr class="even">
+<td>6</td>
+<td>LM Backward</td>
+<td>0.1138</td>
+</tr>
+<tr class="odd">
+<td>7</td>
+<td>PCR</td>
+<td>0.1247</td>
+</tr>
+<tr class="even">
+<td>8</td>
+<td>KNN</td>
+<td>0.1738</td>
+</tr>
+</tbody>
+</table>
 </section>
 </section>
 <section id="results-discussion" class="level2" data-number="6">
 <h2 data-number="6" class="anchored" data-anchor-id="results-discussion"><span class="header-section-number">6</span> Results &amp; Discussion</h2>
 <section id="goodness-of-fit" class="level3" data-number="6.1">
 <h3 data-number="6.1" class="anchored" data-anchor-id="goodness-of-fit"><span class="header-section-number">6.1</span> Goodness of Fit</h3>
-<!-- Aquí falta meter una buena discusión de los resultados, de las métricas que estamos usando y tal, de que suponemos que el error aumentará con el test porque siempre hay cierto overfitting, etc. -->
+<p>The <strong>Generalized Additive Model (GAM)</strong> with cubic splines proved to be a highly effective predictive tool, achieving a validation <strong>RMSE of 0.1025</strong>. Because the target variable is log-transformed, this value indicates that our model has an average prediction error of approximately <strong>10.25%</strong> in the original dollar price of the homes.</p>
+<p>The model demonstrates an exceptional fit, explaining <strong>92% of the total deviance</strong> with an <strong>Adjusted R-squared of 0.914</strong>. To ensure the robustness of these results and guard against overfitting, we analyzed the following diagnostics from the model output:</p>
+<ul>
+<li><strong>Effective Degrees of Freedom (EDF):</strong> The smooth term for <strong>TotalSF</strong> has an EDF of <strong>4.22</strong>, and <strong>LotArea</strong> has an EDF of <strong>4.06</strong>, statistically confirming significant non-linear relationships that a standard linear model would fail to capture.</li>
+<li><strong>Significance of Smooth Terms:</strong> Both <strong>TotalSF</strong> and <strong>LotArea</strong> are highly significant (<span class="math inline">\(p &lt; 2e-16\)</span>), justifying their inclusion as curved predictors rather than simple linear terms.</li>
+<li><strong>Interaction Effects:</strong> The model successfully captured condition-dependent depreciation through the <code>s(HouseAge):OverallCond</code> interaction, which is highly significant for homes in average or good condition, specifically levels 5, 6, and 7 (<span class="math inline">\(p &lt; 2e-16\)</span>).</li>
+</ul>
 </section>
 <section id="specific-questions-assessment" class="level3" data-number="6.2">
 <h3 data-number="6.2" class="anchored" data-anchor-id="specific-questions-assessment"><span class="header-section-number">6.2</span> Specific Questions Assessment</h3>
-<!-- Esto hay que reescribirlo para que se quede un poco mejor, el punto es que estaría bien responder a las preguntas que la profesora plantea en el enunciado. -->
-<p><strong>Q1: What is the variable that contributes the most to explain the variability in price?</strong> Based on our correlation analysis and the magnitude of coefficients in the Lasso model, <strong><code>TotalSF</code> (Total Square Footage)</strong> is the single most important predictor. It captures the size of the living area and basement, which is the primary driver of cost. <strong><code>OverallQual</code></strong> is the second most critical factor.</p>
-<p><strong>Q2: What are the characteristics of the cheapest/most expensive houses?</strong></p>
+<p><strong>Q1: What is the variable that contributes the most to explain the variability in price?</strong></p>
+<p>Based on the GAM results, <strong>TotalSF (Total Square Footage)</strong> is the most critical predictor. It exhibits the highest F-statistic (<strong>74.88</strong>) among the smooth terms, indicating it has the strongest non-linear influence on the house price. This is followed closely by <strong>OverallQual</strong>, where moving from a quality level of 3 to 10 increases the log-price coefficient from <strong>0.29 to 0.71</strong>, representing a massive premium for high-end construction.</p>
+<p><strong>Q2: What are the characteristics of the cheapest and most expensive houses?</strong></p>
 <ul>
-<li><strong>Most Expensive:</strong> Characterized by high <code>OverallQual</code> (9-10), large <code>TotalSF</code> (&gt;4000 sq ft), recent construction (<code>HouseAge</code> &lt; 5 years), and location in neighborhoods like <em>NridgHt</em> or <em>StoneBr</em>. They almost always possess a 3-car garage and high-quality basement finishes.</li>
-<li><strong>Cheapest:</strong> Characterized by low <code>OverallQual</code> (1-4), lack of a garage (<code>GarageType</code> = “No Garage”), older age (<code>HouseAge</code> &gt; 50 years) without remodeling, and often possess the <code>Grav</code> (Gravel) alley access type or belong to the <em>MeadowV</em> neighborhood.</li>
+<li><strong>Most Expensive:</strong> These homes are primarily defined by an <strong>OverallQual of 9 or 10</strong>. They typically feature a large <strong>TotalSF</strong>, have at least <strong>3-car garages</strong> (Estimate: 0.037, <span class="math inline">\(p &lt; 6.41e-06\)</span>), and are located in premium neighborhoods like <strong>NridgHt</strong> or <strong>StoneBr</strong>. The model also shows they often have <strong>Excellent Kitchen Quality</strong> (Estimate: 0.095) and <strong>Finished Garages</strong> (Estimate: 0.102), both of which carry significant positive coefficients.</li>
+<li><strong>Cheapest:</strong> Characterized by low <strong>OverallQual (1-4)</strong> and poor maintenance levels. These properties often have <strong>Fair or Typical basement quality</strong>, which carries a negative coefficient (e.g., BsmtQualFa: -0.113) relative to the baseline. They are frequently located in neighborhoods like <strong>IDOTRR</strong> or <strong>OldTown</strong>, where the renovation impact (<code>YearsSinceRemod</code>) is significantly lower or where specific local conditions depress the valuation.</li>
 </ul>
 </section>
 </section>
 <section id="conclusion" class="level2" data-number="7">
 <h2 data-number="7" class="anchored" data-anchor-id="conclusion"><span class="header-section-number">7</span> Conclusion</h2>
-<!-- Conclusiones por mejorar -->
-<p>By rigorously cleaning the data, engineering relevant features like <code>TotalSF</code>, and utilizing an ensemble of regularized regression models, we created a robust tool for predicting house prices. The model confirms that while size and quality are paramount, the specific combination of location and amenities refines the final valuation. Future work could explore tree-based models (like XGBoost) to capture non-linear relationships that linear models might miss.</p>
+<p>By implementing a <strong>Generalized Additive Model (GAM)</strong>, we successfully captured the intrinsic non-linearities of the Ames housing market, such as the diminishing marginal returns of square footage and the complex interaction between a house’s age and its maintenance condition.</p>
+<p>The model’s ability to explain <strong>92% of price deviance</strong> proves that while basic size metrics are the foundation of value, the “fine-tuning” provided by splines and random effects for neighborhoods is what drives high-precision forecasting. This approach allowed us to identify specific market drivers—like the significant impact of <strong>Fireplaces</strong> (<span class="math inline">\(p &lt; 9.84e-11\)</span>) and <strong>Garage Finishing</strong> (<span class="math inline">\(p &lt; 1.63e-05\)</span>)—that simpler linear models might overlook. Future iterations could explore tree-based models, such as <strong>XGBoost</strong>, to potentially capture higher-order interactions that linear or additive frameworks might still miss.</p>
 </section>
 
 </main>
